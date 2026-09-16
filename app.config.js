@@ -13,7 +13,7 @@ function env(name) {
 module.exports = {
   name: "Golpretech Dochádzka",
   slug: "golpretech-dochadzka",
-  version: "1.0.1",
+  version: "1.1.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
