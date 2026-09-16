@@ -24,8 +24,6 @@ export type TimeEntry = {
   cisloObjednavky: string;
   minuty: number;
   ukon: string;
-  minutovaSadzba: number;
-  cena: number;
   rework: boolean;
   poznamka: string;
   casZapisu: string;

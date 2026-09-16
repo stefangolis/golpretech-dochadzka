@@ -20,7 +20,7 @@ type Props = {
   selected: string;
   onSelect: (dateOnly: string) => void;
   onClose: () => void;
-  /** Najstarší povolený dátum (default: 2 týždne pre nový zápis) */
+  /** Najstarší povolený dátum (default: posledný týždeň pre nový zápis) */
   minDate?: string;
 };
 

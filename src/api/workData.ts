@@ -4,7 +4,6 @@ import {
   myEntriesMinDateOnly,
   todayDateOnly,
 } from "../utils/dates";
-import { computeEntryCena } from "../utils/pricing";
 import {
   getObjednavkaColumnMap,
   parseObjednavkaRow,
@@ -23,6 +22,7 @@ import {
 import { asSharePointValue } from "./listColumns";
 import {
   createSharePointItem,
+  escapeODataString,
   listAllSharePointItems,
   updateSharePointItemFields,
 } from "./sharepointClient";
@@ -30,11 +30,14 @@ import {
   getZakazkaColumnMap,
   parseZakazkaRow,
   type ParsedZakazka,
+  type ZakazkaColumnMap,
 } from "./zakazkaFields";
 import {
   buildPickerWorkItems,
+  zakazkaLookupKey,
   zakazkyLookupMap,
   type WorkCatalog,
+  type ZakazkaLookup,
 } from "./workItemsPicker";
 
 function asString(v: unknown): string {
@@ -53,23 +56,97 @@ function normalizeDateField(v: unknown): string {
   return s.slice(0, 10);
 }
 
+function zakazkaSelectFields(cols: ZakazkaColumnMap): string[] {
+  const fields = [cols.title, cols.zakazkaId, cols.zakaznik, cols.stavAktivna];
+  if (cols.nazov) fields.push(cols.nazov);
+  return [...new Set(fields)];
+}
+
+async function fetchZakazkaByZakazkaId(
+  accessToken: string,
+  cols: ZakazkaColumnMap,
+  zakazkaId: string,
+): Promise<ParsedZakazka | null> {
+  const id = zakazkaId.trim();
+  if (!id) return null;
+  const rows = await listAllSharePointItems(
+    accessToken,
+    env.sharePointListZakazkyId,
+    {
+      filter: `fields/${cols.zakazkaId} eq '${escapeODataString(id)}'`,
+      selectFields: zakazkaSelectFields(cols),
+    },
+  );
+  for (const row of rows) {
+    const parsed = parseZakazkaRow(row.fields, cols);
+    if (parsed.zakazkaId) return parsed;
+  }
+  return null;
+}
+
+/** Doplní lookup o zákazky zo záznamov, ktoré nie sú medzi aktívnymi. */
+export async function enrichZakazkyLookupForEntries(
+  accessToken: string,
+  lookup: ZakazkaLookup,
+  zakazkaIds: readonly string[],
+): Promise<ZakazkaLookup> {
+  const missing = [
+    ...new Set(
+      zakazkaIds
+        .map((id) => id.trim())
+        .filter((id) => id && !lookup[zakazkaLookupKey(id)]),
+    ),
+  ];
+  if (missing.length === 0) return lookup;
+
+  const cols = await getZakazkaColumnMap(accessToken);
+  const next: ZakazkaLookup = { ...lookup };
+  await Promise.all(
+    missing.map(async (id) => {
+      try {
+        const parsed = await fetchZakazkaByZakazkaId(accessToken, cols, id);
+        if (parsed?.zakazkaId) {
+          next[zakazkaLookupKey(parsed.zakazkaId)] = parsed;
+        }
+      } catch {
+        /* zostane kód cez formatEntryZakazkaLabel */
+      }
+    }),
+  );
+  return next;
+}
+
 export async function fetchWorkCatalog(
   accessToken: string,
 ): Promise<WorkCatalog> {
+  const started = Date.now();
   const [zakCols, objCols] = await Promise.all([
     getZakazkaColumnMap(accessToken),
     getObjednavkaColumnMap(accessToken),
   ]);
 
-  const [allZakazkyRows, objRows] = await Promise.all([
-    listAllSharePointItems(accessToken, env.sharePointListZakazkyId),
+  const [activeZakazkyRows, objRows] = await Promise.all([
+    listAllSharePointItems(accessToken, env.sharePointListZakazkyId, {
+      filter: `fields/${zakCols.stavAktivna} eq true`,
+      selectFields: zakazkaSelectFields(zakCols),
+    }),
     listAllSharePointItems(accessToken, env.sharePointListObjednavkyId, {
       filter: "fields/Stav ne 'Neaktivna'",
+      selectFields: [
+        objCols.title,
+        objCols.zakazkaId,
+        objCols.zakaznik,
+        objCols.stav,
+      ],
     }),
   ]);
 
+  console.log(
+    `[fetchWorkCatalog] zakazky=${activeZakazkyRows.length} objednavky=${objRows.length} ${Date.now() - started}ms`,
+  );
+
   const zakazky: ParsedZakazka[] = [];
-  for (const row of allZakazkyRows) {
+  for (const row of activeZakazkyRows) {
     const parsed = parseZakazkaRow(row.fields, zakCols);
     if (!parsed.zakazkaId) continue;
     zakazky.push(parsed);
@@ -90,22 +167,47 @@ export async function fetchActiveWorkItems(accessToken: string) {
 }
 
 /**
- * Moje záznamy: bez OData $filter / $select (častá príčina chýb na SP listoch).
- * Filtrovanie podľa emailu + dátumu na klientovi.
+ * Moje záznamy: server-side filter podľa emailu a okna 7 dní.
  */
 export async function fetchMyTimeEntries(
   accessToken: string,
   employeeEmail: string,
 ): Promise<TimeEntry[]> {
+  const started = Date.now();
   const from = myEntriesMinDateOnly();
   const today = todayDateOnly();
   const emailNorm = employeeEmail.trim().toLowerCase();
+  const emailEscaped = escapeODataString(employeeEmail.trim());
+
+  const fieldMap = await getTimeEntryFieldMap(accessToken);
+
+  const selectFields = [
+    fieldMap.zamestnanecEmail,
+    fieldMap.datum,
+    fieldMap.zakazkaId,
+    fieldMap.minuty,
+    fieldMap.cisloObjednavky,
+    fieldMap.ukon,
+    fieldMap.rework,
+    fieldMap.poznamka,
+    fieldMap.casZapisu,
+  ].filter((c): c is string => !!c);
+
+  const filter = [
+    `fields/${fieldMap.zamestnanecEmail} eq '${emailEscaped}'`,
+    `fields/${fieldMap.datum} ge '${from}T00:00:00Z'`,
+    `fields/${fieldMap.datum} le '${today}T23:59:59Z'`,
+  ].join(" and ");
 
   const rows = await listAllSharePointItems(
     accessToken,
     env.sharePointListZaznamyId,
+    { filter, selectFields },
   );
-  const fieldMap = await getTimeEntryFieldMap(accessToken);
+
+  console.log(
+    `[fetchMyTimeEntries] items=${rows.length} ${Date.now() - started}ms`,
+  );
 
   const entries: TimeEntry[] = [];
   for (const row of rows) {
@@ -123,8 +225,6 @@ export async function fetchMyTimeEntries(
       cisloObjednavky: asString(f.cisloObjednavky),
       minuty: asNumber(f.minuty),
       ukon: asString(f.ukon),
-      minutovaSadzba: asNumber(f.minutovaSadzba),
-      cena: asNumber(f.cena),
       rework: parseStoredRework(f.rework),
       poznamka: asString(f.poznamka),
       casZapisu: asString(f.casZapisu),
@@ -147,13 +247,11 @@ export async function createTimeEntry(
     cisloObjednavky: string;
     minuty: number;
     ukon: string;
-    minutovaSadzba: number;
     rework: boolean;
     poznamka: string;
   },
 ): Promise<void> {
   const casZapisu = new Date().toISOString();
-  const cena = computeEntryCena(input.minuty, input.minutovaSadzba);
   const titleParts = [
     input.datum,
     input.zakazkaId || input.cisloObjednavky || "zaznam",
@@ -171,8 +269,6 @@ export async function createTimeEntry(
     cisloObjednavky: input.cisloObjednavky || "",
     minuty: input.minuty,
     ukon: input.ukon,
-    minutovaSadzba: input.minutovaSadzba,
-    cena,
     rework: input.rework,
     poznamka: input.poznamka || "",
     casZapisu,
@@ -233,12 +329,10 @@ export async function updateTimeEntry(
     cisloObjednavky: string;
     minuty: number;
     ukon: string;
-    minutovaSadzba: number;
     rework: boolean;
     poznamka: string;
   },
 ): Promise<void> {
-  const cena = computeEntryCena(input.minuty, input.minutovaSadzba);
   const titleParts = [
     input.datum,
     input.zakazkaId || input.cisloObjednavky || "zaznam",
@@ -248,18 +342,17 @@ export async function updateTimeEntry(
 
   const fieldMap = await getTimeEntryFieldMap(accessToken);
   const fieldTypes = await getTimeEntryFieldTypes(accessToken);
-  const fields = buildTimeEntryUpdateFields(fieldMap, fieldTypes, {
+  const values = {
     Title: titleParts.join(" · "),
     datum: input.datum,
     zakazkaId: input.zakazkaId,
     cisloObjednavky: input.cisloObjednavky || "",
     minuty: input.minuty,
     ukon: input.ukon,
-    minutovaSadzba: input.minutovaSadzba,
-    cena,
     rework: input.rework,
     poznamka: input.poznamka || "",
-  });
+  };
+  const fields = buildTimeEntryUpdateFields(fieldMap, fieldTypes, values);
 
   try {
     await updateSharePointItemFields(
@@ -278,18 +371,7 @@ export async function updateTimeEntry(
       clearTimeEntryFieldMapCache();
       const retryMap = await getTimeEntryFieldMap(accessToken);
       const retryTypes = await getTimeEntryFieldTypes(accessToken);
-      const retryFields = buildTimeEntryUpdateFields(retryMap, retryTypes, {
-        Title: titleParts.join(" · "),
-        datum: input.datum,
-        zakazkaId: input.zakazkaId,
-        cisloObjednavky: input.cisloObjednavky || "",
-        minuty: input.minuty,
-        ukon: input.ukon,
-        minutovaSadzba: input.minutovaSadzba,
-        cena,
-        rework: input.rework,
-        poznamka: input.poznamka || "",
-      });
+      const retryFields = buildTimeEntryUpdateFields(retryMap, retryTypes, values);
       await updateSharePointItemFields(
         accessToken,
         env.sharePointListZaznamyId,

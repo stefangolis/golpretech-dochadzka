@@ -32,7 +32,7 @@ export function validateTimeEntry(input: {
   poznamka: string;
 }): string | null {
   if (!isValidEntryDate(input.dateOnly)) {
-    return "Dátum môže byť len dnes alebo max. 2 týždne dozadu (nie v budúcnosti).";
+    return "Dátum môže byť len dnes alebo v rámci posledného týždňa (nie v budúcnosti).";
   }
   if (!input.selection) {
     return "Vyberte zákazku alebo objednávku.";

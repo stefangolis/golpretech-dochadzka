@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,7 +17,9 @@ import { BottomSheetModal } from "./BottomSheetModal";
 import { CalendarModal } from "./CalendarModal";
 import { UkonPickerModal } from "./UkonPickerModal";
 import { findUkonByNazov } from "../api/ukonFields";
+import { enrichZakazkyLookupForEntries } from "../api/workData";
 import { MINUTE_PRESETS } from "../constants/minutes";
+import { useAuth } from "../auth/AuthContext";
 import { useUpdateTimeEntry } from "../hooks/useMyEntries";
 import { useUkony } from "../hooks/useUkony";
 import { useWorkCatalog } from "../hooks/useWorkItems";
@@ -48,10 +53,44 @@ export function MyEntriesSection({
   isError,
   error,
 }: Props) {
+  const { getValidAccessToken } = useAuth();
   const workCatalogQuery = useWorkCatalog();
-  const zakazkyById = workCatalogQuery.data?.zakazkyById ?? {};
+  const catalogLookup = workCatalogQuery.data?.zakazkyById;
+  const [extraLookup, setExtraLookup] = useState<ZakazkaLookup>({});
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState<TimeEntry | null>(null);
+
+  const zakazkyById = useMemo(
+    () => ({ ...(catalogLookup ?? {}), ...extraLookup }),
+    [catalogLookup, extraLookup],
+  );
+
+  useEffect(() => {
+    const ids = (entries ?? []).map((e) => e.zakazkaId).filter(Boolean);
+    if (ids.length === 0 || !catalogLookup) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getValidAccessToken();
+        const enriched = await enrichZakazkyLookupForEntries(
+          token,
+          catalogLookup,
+          ids,
+        );
+        if (cancelled) return;
+        const extras: ZakazkaLookup = {};
+        for (const [key, value] of Object.entries(enriched)) {
+          if (!catalogLookup[key]) extras[key] = value;
+        }
+        setExtraLookup(extras);
+      } catch {
+        /* historický názov ostane kód */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entries, catalogLookup, getValidAccessToken]);
 
   const allEntries = entries ?? [];
   const visibleEntries = expanded
@@ -178,6 +217,8 @@ function EditEntryModal({
   const updateEntry = useUpdateTimeEntry();
   const workCatalogQuery = useWorkCatalog();
   const ukonyQuery = useUkony();
+  const editScrollRef = useRef<ScrollView>(null);
+  const noteFocusedRef = useRef(false);
   const [dateOnly, setDateOnly] = useState(todayDateOnly());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [minutesRaw, setMinutesRaw] = useState("");
@@ -214,6 +255,14 @@ function EditEntryModal({
   );
 
   useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      if (!noteFocusedRef.current) return;
+      editScrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (!entry) return;
     setDateOnly(entry.datum);
     setSelectedKey(workKeyFromEntry(entry));
@@ -230,9 +279,8 @@ function EditEntryModal({
       setSelectedUkon({
         id: `stored:${entry.id}`,
         nazov: entry.ukon,
-        minutovaSadzba: entry.minutovaSadzba,
         label: entry.ukon,
-      });
+      } as UkonItem);
     } else {
       setSelectedUkon(null);
     }
@@ -273,7 +321,6 @@ function EditEntryModal({
         cisloObjednavky: selection.cisloObjednavky,
         minuty,
         ukon: selectedUkon.nazov,
-        minutovaSadzba: selectedUkon.minutovaSadzba,
         rework,
         poznamka: note.trim(),
       });
@@ -308,7 +355,15 @@ function EditEntryModal({
         dismissOnBackdrop={false}
       >
         {entry ? (
-          <ScrollView keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView
+            style={styles.editFlex}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <ScrollView
+              ref={editScrollRef}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.editScrollContent}
+            >
             <Text style={styles.label}>Dátum</Text>
             <View style={styles.dateRow}>
               <DateChip
@@ -409,6 +464,12 @@ function EditEntryModal({
               placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
               placeholderTextColor={colors.muted}
               multiline
+              onFocus={() => {
+                noteFocusedRef.current = true;
+              }}
+              onBlur={() => {
+                noteFocusedRef.current = false;
+              }}
             />
 
             {formError ? (
@@ -423,7 +484,10 @@ function EditEntryModal({
                 updateEntry.isPending && styles.saveBtnDisabled,
               ]}
               disabled={updateEntry.isPending}
-              onPress={() => void onSave()}
+              onPress={() => {
+                Keyboard.dismiss();
+                void onSave();
+              }}
             >
               {updateEntry.isPending ? (
                 <ActivityIndicator color={colors.primaryText} />
@@ -431,7 +495,8 @@ function EditEntryModal({
                 <Text style={styles.saveBtnText}>Uložiť zmeny</Text>
               )}
             </Pressable>
-          </ScrollView>
+            </ScrollView>
+          </KeyboardAvoidingView>
         ) : null}
       </BottomSheetModal>
 
@@ -788,6 +853,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  editFlex: { flex: 1 },
+  editScrollContent: { paddingBottom: spacing.xl * 3 },
   saveBtnDisabled: { opacity: 0.7 },
   saveBtnText: {
     color: colors.primaryText,

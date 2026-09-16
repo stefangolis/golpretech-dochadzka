@@ -8,8 +8,6 @@ export type TimeEntryLogicalField =
   | "cisloObjednavky"
   | "minuty"
   | "ukon"
-  | "minutovaSadzba"
-  | "cena"
   | "rework"
   | "poznamka"
   | "casZapisu";
@@ -64,8 +62,6 @@ const LOGICAL_LABELS: Record<TimeEntryLogicalField, string> = {
   cisloObjednavky: "CisloObjednavky",
   minuty: "Minuty",
   ukon: "Ukon",
-  minutovaSadzba: "MinutovaSadzba",
-  cena: "Cena",
   rework: "Rework",
   poznamka: "Poznamka",
   casZapisu: "CasZapisu",
@@ -89,13 +85,6 @@ const PREFERRED: Record<TimeEntryLogicalField, string[]> = {
   ],
   minuty: ["Minuty", "Minutes", "Min"],
   ukon: ["Ukon", "TypUkonu", "Activity"],
-  minutovaSadzba: [
-    "MinutovaSadzba",
-    "Minutova_sadzba",
-    "SadzbaZaMinutu",
-    "Sadzba",
-  ],
-  cena: ["Cena", "Price", "Amount"],
   rework: ["Rework"],
   poznamka: ["Poznamka", "Poznámka", "Note", "Notes"],
   casZapisu: ["CasZapisu", "Cas_zapisu", "Timestamp", "CreatedAt"],
@@ -108,8 +97,6 @@ const DISPLAY_HINTS: Record<TimeEntryLogicalField, string[]> = {
   cisloObjednavky: ["objednav", "objednáv", "cislo", "číslo"],
   minuty: ["minut", "minút"],
   ukon: ["ukon", "úkon"],
-  minutovaSadzba: ["sadzba", "minutova", "minútová"],
-  cena: ["cena", "price", "suma"],
   rework: ["rework"],
   poznamka: ["poznam", "poznám", "note"],
   casZapisu: ["zapis", "zápis", "cas zapis", "timestamp"],
@@ -427,8 +414,6 @@ export function readTimeEntryFromFields(
   cisloObjednavky: unknown;
   minuty: unknown;
   ukon: unknown;
-  minutovaSadzba: unknown;
-  cena: unknown;
   rework: unknown;
   poznamka: unknown;
   casZapisu: unknown;
@@ -442,10 +427,6 @@ export function readTimeEntryFromFields(
       : undefined,
     minuty: fields[map.minuty],
     ukon: map.ukon ? fields[map.ukon] : undefined,
-    minutovaSadzba: map.minutovaSadzba
-      ? fields[map.minutovaSadzba]
-      : undefined,
-    cena: map.cena ? fields[map.cena] : undefined,
     rework: map.rework ? fields[map.rework] : undefined,
     poznamka: map.poznamka ? fields[map.poznamka] : undefined,
     casZapisu: map.casZapisu ? fields[map.casZapisu] : undefined,
@@ -467,8 +448,6 @@ export function buildTimeEntryCreateFields(
     ["cisloObjednavky", values.cisloObjednavky],
     ["minuty", values.minuty],
     ["ukon", values.ukon],
-    ["minutovaSadzba", values.minutovaSadzba],
-    ["cena", values.cena],
     ["rework", values.rework],
     ["poznamka", values.poznamka],
     ["casZapisu", values.casZapisu],
@@ -511,8 +490,6 @@ export function buildTimeEntryUpdateFields(
     cisloObjednavky: string;
     minuty: number;
     ukon: string;
-    minutovaSadzba: number;
-    cena: number;
     rework: boolean;
     poznamka: string;
   },
@@ -527,8 +504,6 @@ export function buildTimeEntryUpdateFields(
     ["cisloObjednavky", values.cisloObjednavky],
     ["minuty", values.minuty],
     ["ukon", values.ukon],
-    ["minutovaSadzba", values.minutovaSadzba],
-    ["cena", values.cena],
     ["rework", values.rework],
     ["poznamka", values.poznamka],
   ];

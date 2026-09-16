@@ -8,6 +8,7 @@ export function useWorkCatalog() {
   return useQuery({
     queryKey: ["workCatalog"],
     enabled: !!user,
+    staleTime: 60 * 60 * 1000,
     queryFn: async () => {
       const token = await getValidAccessToken();
       return fetchWorkCatalog(token);

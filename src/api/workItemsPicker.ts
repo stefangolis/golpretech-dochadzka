@@ -11,7 +11,7 @@ export type ZakazkaLookup = Record<string, ParsedZakazka>;
 export type WorkCatalog = {
   /** Ponuka na výber pri novom zápise — len aktívne zákazky. */
   pickerItems: WorkItem[];
-  /** Všetky zákazky (aj neaktívne) na dohľadanie názvu v histórii. */
+  /** Aktívne zákazky (+ historické doplnené podľa potreby). */
   zakazkyById: ZakazkaLookup;
 };
 

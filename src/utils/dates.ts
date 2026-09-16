@@ -1,8 +1,8 @@
-/** Počet dní dozadu vrátane dneška (14 = 2 týždne) — nový zápis */
-export const ENTRY_DAYS_BACK = 14;
+/** Počet dní dozadu vrátane dneška (7 = posledný týždeň) — nový zápis */
+export const ENTRY_DAYS_BACK = 7;
 
-/** Moje záznamy: posledný týždeň vrátane dneška */
-export const MY_ENTRIES_DAYS_BACK = 7;
+/** Moje záznamy: posledný týždeň vrátane dneška (= ENTRY_DAYS_BACK) */
+export const MY_ENTRIES_DAYS_BACK = ENTRY_DAYS_BACK;
 
 /** Lokálny dátum ako YYYY-MM-DD */
 export function toDateOnly(d: Date): string {
@@ -68,7 +68,7 @@ export function formatDateShort(dateOnly: string): string {
   });
 }
 
-/** Nie budúcnosť, max. 2 týždne dozadu */
+/** Nie budúcnosť, max. 7 dní dozadu */
 export function isValidEntryDate(dateOnly: string): boolean {
   const today = todayDateOnly();
   const min = minEntryDateOnly();

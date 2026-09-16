@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -41,6 +41,7 @@ import { parseMinutes, validateTimeEntry } from "../utils/validation";
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const noteFocusedRef = useRef(false);
   const { user, signOut } = useAuth();
   const workCatalogQuery = useWorkCatalog();
   const ukonyQuery = useUkony();
@@ -82,6 +83,14 @@ export function HomeScreen() {
     () => ukonyQuery.data?.map((u) => u.nazov) ?? [],
     [ukonyQuery.data],
   );
+
+  useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      if (!noteFocusedRef.current) return;
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
 
   const onRefresh = async () => {
     await Promise.all([
@@ -136,7 +145,6 @@ export function HomeScreen() {
         cisloObjednavky: selection.cisloObjednavky,
         minuty,
         ukon: selectedUkon.nazov,
-        minutovaSadzba: selectedUkon.minutovaSadzba,
         rework,
         poznamka: note.trim(),
       });
@@ -156,19 +164,13 @@ export function HomeScreen() {
     ukonyQuery.isRefetching ||
     myEntriesQuery.isRefetching;
 
-  const scrollToNote = () => {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, Platform.OS === "ios" ? 280 : 120);
-  };
-
-  const bottomPad = insets.bottom + spacing.xl + spacing.md;
+  const bottomPad = insets.bottom + spacing.xl * 3 + spacing.md;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
       >
         <ScrollView
@@ -322,7 +324,12 @@ export function HomeScreen() {
             placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
             placeholderTextColor={colors.muted}
             multiline
-            onFocus={scrollToNote}
+            onFocus={() => {
+              noteFocusedRef.current = true;
+            }}
+            onBlur={() => {
+              noteFocusedRef.current = false;
+            }}
           />
 
           {formError ? (

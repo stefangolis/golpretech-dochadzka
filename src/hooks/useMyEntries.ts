@@ -9,6 +9,7 @@ export function useMyEntries() {
   return useQuery({
     queryKey: ["myEntries", email],
     enabled: !!email,
+    staleTime: 2 * 60 * 1000,
     queryFn: async () => {
       const token = await getValidAccessToken();
       return fetchMyTimeEntries(token, email);
@@ -27,7 +28,6 @@ export function useCreateTimeEntry() {
       cisloObjednavky: string;
       minuty: number;
       ukon: string;
-      minutovaSadzba: number;
       rework: boolean;
       poznamka: string;
     }) => {
@@ -58,7 +58,6 @@ export function useUpdateTimeEntry() {
       cisloObjednavky: string;
       minuty: number;
       ukon: string;
-      minutovaSadzba: number;
       rework: boolean;
       poznamka: string;
     }) => {
