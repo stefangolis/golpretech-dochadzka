@@ -1,0 +1,7 @@
+# Lokálne / vývoj — neposielať na EAS Build
+.env
+.env.*
+!.env.example
+logs/
+*.log
+node_modules/.cache/
