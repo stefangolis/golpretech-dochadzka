@@ -14,8 +14,6 @@ export type WorkCatalog = {
   pickerItems: WorkItem[];
   /** Aktívne zákazky (+ historické doplnené podľa potreby). */
   zakazkyById: ZakazkaLookup;
-  /** TODO odstrániť po odladení — diagnostika pri prázdnom výbere. */
-  debug?: string;
 };
 
 function isActiveOrderStatus(stav: string): boolean {

@@ -81,15 +81,7 @@ export function WorkItemPickerModal({
           keyboardShouldPersistTaps="handled"
           style={styles.modalList}
           ListEmptyComponent={
-            <>
-              <Text style={styles.muted}>Nič nenájdené.</Text>
-              {/* TODO odstrániť po odladení */}
-              {workCatalogQuery.data?.debug ? (
-                <Text style={styles.muted} selectable>
-                  {workCatalogQuery.data.debug}
-                </Text>
-              ) : null}
-            </>
+            <Text style={styles.muted}>Nič nenájdené.</Text>
           }
           renderItem={({ item }) => (
             <WorkItemOption

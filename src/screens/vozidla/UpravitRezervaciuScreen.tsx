@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,22 +15,23 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
 import { useAuth } from "../../auth/AuthContext";
-import { BottomSheetModal } from "../../components/BottomSheetModal";
 import { RangeCalendarModal } from "../../components/RangeCalendarModal";
 import { WorkItemPickerModal } from "../../components/WorkItemPickerModal";
 import {
-  useCreateRezervacia,
   useRezervacie,
+  useUpravitRezervaciu,
   useVozidla,
 } from "../../hooks/useVozidla";
 import { useWorkCatalog } from "../../hooks/useWorkItems";
 import { colors, font, spacing } from "../../theme";
 import type { WorkItem } from "../../types/workItems";
-import type { Vozidlo } from "../../api/vozidlaFields";
+import { formatEntryZakazkaLabel } from "../../api/workItemsPicker";
+import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
 import {
   daysAheadDateOnly,
   formatDateSk,
@@ -39,7 +39,6 @@ import {
   todayDateOnly,
 } from "../../utils/dates";
 import {
-  dostupnostVozidla,
   formatRezervaciaObdobie,
   menoZRezervacie,
   najdiKolizie,
@@ -47,18 +46,15 @@ import {
   REZERVACIA_MAX_DAYS,
   REZERVACIA_MAX_DAYS_AHEAD,
 } from "../../utils/rezervacie";
-import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
-const MAX_DAYS = REZERVACIA_MAX_DAYS;
-
-export function NovaRezervaciaScreen() {
+/** Zmena nezačatej rezervácie: termín, zákazka, cieľ cesty. Vozidlo sa nemení. */
+export function UpravitRezervaciuScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const cielFocusedRef = useRef(false);
   const keyboardHeight = useKeyboardHeight();
 
-  // Po zobrazení klávesnice posuň na pole Cieľ cesty.
   useEffect(() => {
     if (keyboardHeight <= 0 || !cielFocusedRef.current) return;
     const t = setTimeout(
@@ -67,65 +63,64 @@ export function NovaRezervaciaScreen() {
     );
     return () => clearTimeout(t);
   }, [keyboardHeight]);
+
   const navigation =
     useNavigation<NativeStackNavigationProp<VozidlaStackParamList>>();
+  const route =
+    useRoute<RouteProp<VozidlaStackParamList, "UpravitRezervaciu">>();
+  const rezervacia = route.params.rezervacia;
+
   const { getValidAccessToken } = useAuth();
   const vozidlaQuery = useVozidla();
   const workCatalogQuery = useWorkCatalog();
-  const createMutation = useCreateRezervacia();
+  const upravit = useUpravitRezervaciu();
 
   const today = todayDateOnly();
-  const [selectedVozidlo, setSelectedVozidlo] = useState<Vozidlo | null>(null);
-  const [od, setOd] = useState(today);
-  const [doDate, setDoDate] = useState(today);
-  const [selectedWork, setSelectedWork] = useState<WorkItem | null>(null);
-  const [cielCesty, setCielCesty] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const maxRezervacieDate = daysAheadDateOnly(REZERVACIA_MAX_DAYS_AHEAD);
+  const obsadenostQuery = useRezervacie(today, maxRezervacieDate);
 
-  const [vozidloOpen, setVozidloOpen] = useState(false);
+  const [od, setOd] = useState(rezervacia.od);
+  const [doDate, setDoDate] = useState(rezervacia.do);
+  const [selectedWork, setSelectedWork] = useState<WorkItem | null>(null);
+  const [cielCesty, setCielCesty] = useState(rezervacia.cielCesty);
+  const [formError, setFormError] = useState<string | null>(null);
   const [terminOpen, setTerminOpen] = useState(false);
   const [workOpen, setWorkOpen] = useState(false);
 
-  const horizon = daysAheadDateOnly(13);
-  const rezervacieQuery = useRezervacie(today, horizon);
+  const vozidlo = useMemo(() => {
+    const spz = rezervacia.vozidloSpz.trim().toLowerCase();
+    return (vozidlaQuery.data ?? []).find(
+      (v) => v.spz.trim().toLowerCase() === spz,
+    );
+  }, [vozidlaQuery.data, rezervacia.vozidloSpz]);
+  const nazovVozidla = vozidlo?.nazov ?? rezervacia.vozidloSpz;
 
-  const vozidla = vozidlaQuery.data ?? [];
+  const prefilledWork = useMemo(() => {
+    const id = rezervacia.zakazkaId.trim().toLowerCase();
+    if (!id) return null;
+    const items = workCatalogQuery.data?.pickerItems ?? [];
+    const matches = items.filter(
+      (i) => i.zakazkaId.trim().toLowerCase() === id,
+    );
+    return matches.find((i) => i.kind === "zakazka") ?? matches[0] ?? null;
+  }, [workCatalogQuery.data, rezervacia.zakazkaId]);
 
-  const dostupnostMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const v of vozidla) {
-      map.set(
-        v.id,
-        dostupnostVozidla(v, rezervacieQuery.data ?? [], today, 14).text,
-      );
-    }
-    return map;
-  }, [vozidla, rezervacieQuery.data, today]);
+  const work = selectedWork ?? prefilledWork;
+  const zakazkaId = work?.zakazkaId ?? rezervacia.zakazkaId;
 
-  // Obsadené dni vybraného vozidla (na 90 dní) — v kalendári červené.
-  const maxRezervacieDate = daysAheadDateOnly(REZERVACIA_MAX_DAYS_AHEAD);
-  const obsadenostQuery = useRezervacie(today, maxRezervacieDate);
   const busyDates = useMemo(
     () =>
       obsadeneDniVozidla(
         obsadenostQuery.data ?? [],
-        selectedVozidlo?.spz ?? "",
+        rezervacia.vozidloSpz,
         today,
         maxRezervacieDate,
+        rezervacia.id,
       ),
-    [selectedVozidlo, obsadenostQuery.data, today, maxRezervacieDate],
+    [obsadenostQuery.data, rezervacia, today, maxRezervacieDate],
   );
 
   const onSubmit = async () => {
-    setWarning(null);
-    setSuccessMsg(null);
-
-    if (!selectedVozidlo) {
-      setFormError("Vyberte vozidlo.");
-      return;
-    }
     if (od < today) {
       setFormError("Dátum Od nemôže byť v minulosti.");
       return;
@@ -134,11 +129,13 @@ export function NovaRezervaciaScreen() {
       setFormError("Dátum Do musí byť rovný alebo neskôr ako Od.");
       return;
     }
-    if (inclusiveDayCount(od, doDate) > MAX_DAYS) {
-      setFormError(`Maximálna dĺžka rezervácie je ${MAX_DAYS} dní.`);
+    if (inclusiveDayCount(od, doDate) > REZERVACIA_MAX_DAYS) {
+      setFormError(
+        `Maximálna dĺžka rezervácie je ${REZERVACIA_MAX_DAYS} dní.`,
+      );
       return;
     }
-    if (!selectedWork) {
+    if (!zakazkaId.trim()) {
       setFormError("Vyberte zákazku alebo objednávku.");
       return;
     }
@@ -148,15 +145,15 @@ export function NovaRezervaciaScreen() {
     }
 
     setFormError(null);
-
     try {
       const token = await getValidAccessToken();
       const existujuce = await fetchRezervacieVRozsahu(token, od, doDate);
       const kolizie = najdiKolizie(
         {
-          vozidloSpz: selectedVozidlo.spz,
+          vozidloSpz: rezervacia.vozidloSpz,
           od,
           do: doDate,
+          excludeId: rezervacia.id,
         },
         existujuce,
       );
@@ -168,41 +165,24 @@ export function NovaRezervaciaScreen() {
         return;
       }
 
-      const createdId = await createMutation.mutateAsync({
-        nazovVozidla: selectedVozidlo.nazov,
-        vozidloSpz: selectedVozidlo.spz,
+      await upravit.mutateAsync({
+        id: rezervacia.id,
+        nazovVozidla,
         od,
         do: doDate,
-        zakazkaId: selectedWork.zakazkaId,
+        zakazkaId,
         cielCesty: cielCesty.trim(),
       });
-
-      const after = await fetchRezervacieVRozsahu(token, od, doDate);
-      const late = najdiKolizie(
-        {
-          vozidloSpz: selectedVozidlo.spz,
-          od,
-          do: doDate,
-          excludeId: createdId || undefined,
-        },
-        after,
-      );
-      if (late.length > 0) {
-        const k = late[0]!;
-        setWarning(
-          `Pozor: kolízia s rezerváciou ${menoZRezervacie(k)}, ${formatRezervaciaObdobie(k.od, k.do)} - dohodnite sa, prosím`,
-        );
-      } else {
-        setSuccessMsg("Rezervácia uložená.");
-      }
-
-      setCielCesty("");
-      setSelectedWork(null);
-      void rezervacieQuery.refetch();
+      navigation.goBack();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  const zakazkaFallbackLabel = formatEntryZakazkaLabel(
+    rezervacia.zakazkaId,
+    workCatalogQuery.data?.zakazkyById ?? {},
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
@@ -226,27 +206,19 @@ export function NovaRezervaciaScreen() {
             >
               <Text style={styles.backBtnText}>← Späť</Text>
             </Pressable>
-            <Text style={styles.topBarTitle}>Nová rezervácia</Text>
+            <Text style={styles.topBarTitle}>Zmeniť rezerváciu</Text>
             <View style={styles.backBtnPlaceholder} />
           </View>
 
-          <Text style={styles.label}>1. Vozidlo *</Text>
-          <Pressable
-            style={styles.selectBtn}
-            onPress={() => setVozidloOpen(true)}
-          >
-            <Text
-              style={
-                selectedVozidlo ? styles.selectValue : styles.selectPlaceholder
-              }
-            >
-              {selectedVozidlo
-                ? `${selectedVozidlo.nazov} · ${selectedVozidlo.spz}`
-                : "Vyberte vozidlo…"}
+          <Text style={styles.label}>Vozidlo</Text>
+          <View style={[styles.selectBtn, styles.selectLocked]}>
+            <Text style={styles.selectValue}>
+              {nazovVozidla}
+              {rezervacia.vozidloSpz ? ` · ${rezervacia.vozidloSpz}` : ""}
             </Text>
-          </Pressable>
+          </View>
 
-          <Text style={styles.label}>2. Termín (od – do) *</Text>
+          <Text style={styles.label}>1. Termín (od – do) *</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setTerminOpen(true)}
@@ -258,20 +230,20 @@ export function NovaRezervaciaScreen() {
             </Text>
           </Pressable>
 
-          <Text style={styles.label}>3. Zákazka *</Text>
+          <Text style={styles.label}>2. Zákazka *</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setWorkOpen(true)}
           >
-            {selectedWork ? (
+            {work ? (
               <View style={styles.selectedInline}>
-                <Text style={styles.selectedLabel}>{selectedWork.label}</Text>
-                {selectedWork.subtitle ? (
-                  <Text style={styles.selectedSub}>
-                    {selectedWork.subtitle}
-                  </Text>
+                <Text style={styles.selectedLabel}>{work.label}</Text>
+                {work.subtitle ? (
+                  <Text style={styles.selectedSub}>{work.subtitle}</Text>
                 ) : null}
               </View>
+            ) : rezervacia.zakazkaId ? (
+              <Text style={styles.selectedLabel}>{zakazkaFallbackLabel}</Text>
             ) : (
               <Text style={styles.selectPlaceholder}>
                 Vyberte zákazku alebo objednávku…
@@ -286,7 +258,7 @@ export function NovaRezervaciaScreen() {
             </Text>
           ) : null}
 
-          <Text style={styles.label}>4. Cieľ cesty *</Text>
+          <Text style={styles.label}>3. Cieľ cesty *</Text>
           <TextInput
             style={styles.input}
             value={cielCesty}
@@ -306,71 +278,26 @@ export function NovaRezervaciaScreen() {
               {formError}
             </Text>
           ) : null}
-          {warning ? (
-            <Text style={styles.warning} selectable>
-              {warning}
-            </Text>
-          ) : null}
-          {successMsg ? <Text style={styles.success}>{successMsg}</Text> : null}
 
           <Pressable
             style={[
               styles.submitBtn,
-              createMutation.isPending && styles.submitDisabled,
+              upravit.isPending && styles.submitDisabled,
             ]}
-            disabled={createMutation.isPending}
+            disabled={upravit.isPending}
             onPress={() => {
               Keyboard.dismiss();
               void onSubmit();
             }}
           >
-            {createMutation.isPending ? (
+            {upravit.isPending ? (
               <ActivityIndicator color={colors.primaryText} />
             ) : (
-              <Text style={styles.submitText}>Uložiť rezerváciu</Text>
+              <Text style={styles.submitText}>Uložiť zmeny</Text>
             )}
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <BottomSheetModal
-        visible={vozidloOpen}
-        title="Vozidlo"
-        onClose={() => setVozidloOpen(false)}
-        tall
-      >
-        {vozidlaQuery.isLoading ? (
-          <ActivityIndicator color={colors.primary} />
-        ) : (
-          <FlatList
-            data={vozidla}
-            keyExtractor={(item) => item.id}
-            style={styles.modalList}
-            ListEmptyComponent={
-              <Text style={styles.muted}>Žiadne aktívne vozidlá.</Text>
-            }
-            renderItem={({ item }) => (
-              <Pressable
-                style={[
-                  styles.modalOption,
-                  selectedVozidlo?.id === item.id && styles.modalOptionActive,
-                ]}
-                onPress={() => {
-                  setSelectedVozidlo(item);
-                  setVozidloOpen(false);
-                }}
-              >
-                <Text style={styles.modalOptionText}>
-                  {item.nazov} · {item.spz}
-                </Text>
-                <Text style={styles.modalOptionSub}>
-                  {dostupnostMap.get(item.id) ?? "—"}
-                </Text>
-              </Pressable>
-            )}
-          />
-        )}
-      </BottomSheetModal>
 
       <RangeCalendarModal
         visible={terminOpen}
@@ -378,7 +305,7 @@ export function NovaRezervaciaScreen() {
         doDate={doDate}
         minDate={today}
         maxDate={maxRezervacieDate}
-        maxDays={MAX_DAYS}
+        maxDays={REZERVACIA_MAX_DAYS}
         busyDates={busyDates}
         onConfirm={(nextOd, nextDo) => {
           setOd(nextOd);
@@ -390,7 +317,7 @@ export function NovaRezervaciaScreen() {
 
       <WorkItemPickerModal
         visible={workOpen}
-        selectedKey={selectedWork?.key ?? null}
+        selectedKey={work?.key ?? null}
         onSelect={setSelectedWork}
         onClose={() => setWorkOpen(false)}
       />
@@ -440,6 +367,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     justifyContent: "center",
   },
+  selectLocked: { backgroundColor: colors.bg },
   selectValue: { fontSize: font.lg, fontWeight: "600", color: colors.text },
   selectPlaceholder: { fontSize: font.lg, color: colors.muted },
   selectedInline: { gap: 2 },
@@ -461,18 +389,6 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   error: { fontSize: font.sm, color: colors.danger, lineHeight: 18 },
-  warning: {
-    fontSize: font.sm,
-    color: "#9A6700",
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  success: {
-    fontSize: font.md,
-    color: colors.success,
-    fontWeight: "700",
-  },
-  muted: { fontSize: font.sm, color: colors.muted },
   submitBtn: {
     marginTop: spacing.md,
     minHeight: 48,
@@ -487,24 +403,4 @@ const styles = StyleSheet.create({
     fontSize: font.lg,
     fontWeight: "800",
   },
-  modalList: { flex: 1 },
-  modalOption: {
-    marginTop: spacing.xs,
-    padding: spacing.md,
-    borderRadius: 10,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 2,
-  },
-  modalOptionActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  modalOptionText: {
-    fontSize: font.md,
-    fontWeight: "700",
-    color: colors.text,
-  },
-  modalOptionSub: { fontSize: font.sm, color: colors.muted },
 });

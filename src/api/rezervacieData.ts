@@ -184,7 +184,44 @@ export async function zrusitRezervaciu(
   );
 }
 
-export async function predlzitRezervaciu(
+/** Úprava nezačatej rezervácie: termín, zákazka, cieľ cesty (vozidlo sa nemení). */
+export async function upravitRezervaciu(
+  accessToken: string,
+  itemId: string,
+  input: {
+    nazovVozidla: string;
+    displayName: string;
+    od: string;
+    do: string;
+    zakazkaId: string;
+    cielCesty: string;
+  },
+): Promise<void> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  const title = buildRezervaciaTitle(
+    input.nazovVozidla,
+    input.od,
+    input.do,
+    input.displayName,
+  );
+  const fields: Record<string, unknown> = {
+    [cols.od]: toSharePointDateTime(input.od),
+    [cols.do]: toSharePointDateTime(input.do),
+    [cols.title]: title,
+  };
+  if (cols.zakazkaId) fields[cols.zakazkaId] = input.zakazkaId.trim();
+  if (cols.cielCesty) fields[cols.cielCesty] = input.cielCesty.trim();
+  await updateSharePointItemFields(
+    accessToken,
+    env.sharePointListRezervacieId,
+    itemId,
+    fields,
+  );
+}
+
+/** Zmena konca (predĺženie, skrátenie, odovzdanie skôr). Od sa nezapisuje. */
+export async function zmenitKoniecRezervacie(
   accessToken: string,
   itemId: string,
   input: {

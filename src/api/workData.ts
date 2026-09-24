@@ -68,7 +68,6 @@ async function listItemsWithFilterFallback(
   options: {
     filter: string;
     selectFields: string[];
-    debugLabel: string;
     /** Áno/Nie $filter často vráti 0 riadkov bez chyby — načítaj všetko. */
     reloadAllIfEmpty?: boolean;
   },
@@ -77,12 +76,10 @@ async function listItemsWithFilterFallback(
     const rows = await listAllSharePointItems(accessToken, listId, {
       filter: options.filter,
       selectFields: options.selectFields,
-      debugLabel: options.debugLabel,
     });
     if (options.reloadAllIfEmpty && rows.length === 0) {
       return listAllSharePointItems(accessToken, listId, {
         selectFields: options.selectFields,
-        debugLabel: `${options.debugLabel}-all`,
       });
     }
     return rows;
@@ -90,7 +87,6 @@ async function listItemsWithFilterFallback(
     if (!isFilterHttpError(err)) throw err;
     return listAllSharePointItems(accessToken, listId, {
       selectFields: options.selectFields,
-      debugLabel: `${options.debugLabel}-all`,
     });
   }
 }
@@ -112,7 +108,6 @@ async function fetchActiveZakazkyRows(
       {
         filter: `fields/${cols.stavAktivna} eq 1`,
         selectFields,
-        debugLabel: "Zakazky",
       },
     );
     const allActive =
@@ -125,7 +120,7 @@ async function fetchActiveZakazkyRows(
   const all = await listAllSharePointItems(
     accessToken,
     env.sharePointListZakazkyId,
-    { selectFields, debugLabel: "Zakazky-all" },
+    { selectFields },
   );
   return all.filter((r) => asSharePointYesNo(r.fields[cols.stavAktivna]));
 }
@@ -205,7 +200,6 @@ export async function fetchWorkCatalog(
     listItemsWithFilterFallback(accessToken, env.sharePointListObjednavkyId, {
       filter: `fields/${objCols.stav} ne 'Neaktivna'`,
       selectFields: objSelect,
-      debugLabel: "PrijateObjednavky",
     }),
   ]);
 
@@ -216,36 +210,19 @@ export async function fetchWorkCatalog(
     zakazky.push(parsed);
   }
 
-  const activeZakazky = zakazky.filter((z) => asSharePointYesNo(z.stavAktivna));
-
   const objednavky = objRows.map((row) =>
     parseObjednavkaRow(row.fields, objCols),
   );
 
   const pickerItems = buildPickerWorkItems(zakazky, objednavky);
 
-  // TODO odstrániť po odladení
   console.log(
-    "[fetchWorkCatalog] stavAktivnaColumn=",
-    zakCols.stavAktivna,
-    "sampleFields=",
-    zakazkyRows.slice(0, 3).map((r) => r.fields),
+    `[fetchWorkCatalog] zakazky=${zakazky.length} objednavky=${objRows.length} ${Date.now() - started}ms`,
   );
-  console.log(
-    `[fetchWorkCatalog] zakazky=${zakazkyRows.length} sId=${zakazky.length} aktivne=${activeZakazky.length} objednavky=${objRows.length} picker=${pickerItems.length} ${Date.now() - started}ms`,
-  );
-
-  const sample = zakazkyRows[0]?.fields ?? {};
-  const debug =
-    `zakazky=${zakazkyRows.length} sId=${zakazky.length} aktivne=${activeZakazky.length} ` +
-    `objednavky=${objRows.length} picker=${pickerItems.length}\n` +
-    `stlpce: id=${zakCols.zakazkaId} aktivna=${zakCols.stavAktivna}\n` +
-    `vzorka: ${JSON.stringify(sample).slice(0, 300)}`;
 
   return {
     pickerItems,
     zakazkyById: zakazkyLookupMap(zakazky),
-    debug,
   };
 }
 

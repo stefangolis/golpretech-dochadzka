@@ -16,27 +16,32 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Rezervacia } from "../../api/rezervacieFields";
 import type { Vozidlo } from "../../api/vozidlaFields";
 import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
-import { CalendarModal } from "../../components/CalendarModal";
+import { RangeCalendarModal } from "../../components/RangeCalendarModal";
 import { useAuth } from "../../auth/AuthContext";
 import {
   useMojeRezervacie,
-  usePredlzitRezervaciu,
   useRezervacie,
   useVozidla,
+  useZmenitKoniecRezervacie,
   useZrusitRezervaciu,
 } from "../../hooks/useVozidla";
 import type { RootStackParamList } from "../../navigation/RootNavigator";
 import { colors, font, spacing } from "../../theme";
 import {
-  dayAfterDateOnly,
+  addDaysDateOnly,
   daysAheadDateOnly,
   formatDateShort,
+  inclusiveDayCount,
   todayDateOnly,
 } from "../../utils/dates";
 import {
   dostupnostVozidla,
   formatRezervaciaObdobie,
+  menoZRezervacie,
   najdiKolizie,
+  obsadeneDniVozidla,
+  REZERVACIA_MAX_DAYS,
+  REZERVACIA_MAX_DAYS_AHEAD,
 } from "../../utils/rezervacie";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
@@ -53,10 +58,35 @@ export function VozidlaHomeScreen() {
   const rezervacieQuery = useRezervacie(today, horizon);
   const mojeQuery = useMojeRezervacie();
   const zrusit = useZrusitRezervaciu();
-  const predlzit = usePredlzitRezervaciu();
+  const zmenitKoniec = useZmenitKoniecRezervacie();
 
-  const [extendTarget, setExtendTarget] = useState<Rezervacia | null>(null);
+  const maxRezervacieDate = daysAheadDateOnly(REZERVACIA_MAX_DAYS_AHEAD);
+  const obsadenostQuery = useRezervacie(today, maxRezervacieDate);
+
+  const [endTarget, setEndTarget] = useState<Rezervacia | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const endBusyDates = useMemo(
+    () =>
+      endTarget
+        ? obsadeneDniVozidla(
+            obsadenostQuery.data ?? [],
+            endTarget.vozidloSpz,
+            today,
+            maxRezervacieDate,
+            endTarget.id,
+          )
+        : new Set<string>(),
+    [endTarget, obsadenostQuery.data, today, maxRezervacieDate],
+  );
+
+  const endMinDate =
+    endTarget && endTarget.od > today ? endTarget.od : today;
+  const endMaxDate = (() => {
+    if (!endTarget) return maxRezervacieDate;
+    const byLength = addDaysDateOnly(endTarget.od, REZERVACIA_MAX_DAYS - 1);
+    return byLength < maxRezervacieDate ? byLength : maxRezervacieDate;
+  })();
 
   const vozidlaBySpz = useMemo(() => {
     const map = new Map<string, Vozidlo>();
@@ -105,12 +135,18 @@ export function VozidlaHomeScreen() {
     );
   };
 
-  const onPredlzitSelect = async (noveDo: string) => {
-    const r = extendTarget;
-    setExtendTarget(null);
-    if (!r) return;
-    if (noveDo <= r.do) {
-      setActionError("Nový dátum Do musí byť neskôr ako pôvodné Do.");
+  /** Zapíše nový koniec; Od sa nemení. */
+  const ulozitKoniec = async (r: Rezervacia, noveDo: string) => {
+    if (noveDo === r.do) return;
+    const minDo = r.od > today ? r.od : today;
+    if (noveDo < minDo) {
+      setActionError("Koniec rezervácie nemôže byť pred začiatkom ani v minulosti.");
+      return;
+    }
+    if (inclusiveDayCount(r.od, noveDo) > REZERVACIA_MAX_DAYS) {
+      setActionError(
+        `Maximálna dĺžka rezervácie je ${REZERVACIA_MAX_DAYS} dní.`,
+      );
       return;
     }
 
@@ -130,11 +166,11 @@ export function VozidlaHomeScreen() {
       if (kolizie.length > 0) {
         const k = kolizie[0]!;
         setActionError(
-          `Kolízia s rezerváciou ${formatRezervaciaObdobie(k.od, k.do)} (${k.title || k.zamestnanecEmail}).`,
+          `Kolízia s rezerváciou ${menoZRezervacie(k)}, ${formatRezervaciaObdobie(k.od, k.do)}.`,
         );
         return;
       }
-      await predlzit.mutateAsync({
+      await zmenitKoniec.mutateAsync({
         id: r.id,
         noveDo,
         nazovVozidla: nazovVozidla(r.vozidloSpz),
@@ -144,6 +180,22 @@ export function VozidlaHomeScreen() {
       setActionError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  const onOdovzdatSkor = (r: Rezervacia) => {
+    Alert.alert(
+      "Ukončiť rezerváciu dnes?",
+      "Vozidlo sa uvoľní pre ostatných od zajtra.",
+      [
+        { text: "Nie", style: "cancel" },
+        {
+          text: "Ukončiť dnes",
+          onPress: () => void ulozitKoniec(r, today),
+        },
+      ],
+    );
+  };
+
+  const actionPending = zrusit.isPending || zmenitKoniec.isPending;
 
   const loadError =
     (vozidlaQuery.isError && vozidlaQuery.error) ||
@@ -202,22 +254,51 @@ export function VozidlaHomeScreen() {
 
               {canManage(r) ? (
                 <View style={styles.actions}>
-                  <Pressable
-                    style={styles.actionBtn}
-                    onPress={() => setExtendTarget(r)}
-                    disabled={predlzit.isPending}
-                  >
-                    <Text style={styles.actionBtnText}>Predĺžiť</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionBtn, styles.actionDanger]}
-                    onPress={() => onZrusit(r)}
-                    disabled={zrusit.isPending}
-                  >
-                    <Text style={[styles.actionBtnText, styles.actionDangerText]}>
-                      Zrušiť
-                    </Text>
-                  </Pressable>
+                  {r.od > today ? (
+                    <>
+                      <Pressable
+                        style={styles.actionBtn}
+                        onPress={() =>
+                          navigation.navigate("UpravitRezervaciu", {
+                            rezervacia: r,
+                          })
+                        }
+                        disabled={actionPending}
+                      >
+                        <Text style={styles.actionBtnText}>Zmeniť</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.actionBtn, styles.actionDanger]}
+                        onPress={() => onZrusit(r)}
+                        disabled={actionPending}
+                      >
+                        <Text
+                          style={[styles.actionBtnText, styles.actionDangerText]}
+                        >
+                          Zrušiť
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : r.do >= today ? (
+                    <>
+                      <Pressable
+                        style={styles.actionBtn}
+                        onPress={() => setEndTarget(r)}
+                        disabled={actionPending}
+                      >
+                        <Text style={styles.actionBtnText}>Zmeniť koniec</Text>
+                      </Pressable>
+                      {r.do !== today ? (
+                        <Pressable
+                          style={styles.actionBtn}
+                          onPress={() => onOdovzdatSkor(r)}
+                          disabled={actionPending}
+                        >
+                          <Text style={styles.actionBtnText}>Odovzdať skôr</Text>
+                        </Pressable>
+                      ) : null}
+                    </>
+                  ) : null}
                   {r.stav === "Prevzate" ? (
                     <Pressable style={[styles.actionBtn, styles.actionDisabled]} disabled>
                       <Text style={styles.actionDisabledText}>
@@ -288,17 +369,21 @@ export function VozidlaHomeScreen() {
         </Pressable>
       </ScrollView>
 
-      <CalendarModal
-        visible={extendTarget != null}
-        selected={
-          extendTarget ? dayAfterDateOnly(extendTarget.do) : today
-        }
-        minDate={
-          extendTarget ? dayAfterDateOnly(extendTarget.do) : today
-        }
-        maxDate={daysAheadDateOnly(60)}
-        onSelect={(d) => void onPredlzitSelect(d)}
-        onClose={() => setExtendTarget(null)}
+      <RangeCalendarModal
+        visible={endTarget != null}
+        od={endTarget?.od ?? today}
+        doDate={endTarget?.do ?? today}
+        minDate={endMinDate}
+        maxDate={endMaxDate}
+        maxDays={REZERVACIA_MAX_DAYS}
+        busyDates={endBusyDates}
+        fixedStart
+        title="Zmeniť koniec rezervácie"
+        onConfirm={(_od, noveDo) => {
+          const r = endTarget;
+          if (r) void ulozitKoniec(r, noveDo);
+        }}
+        onClose={() => setEndTarget(null)}
       />
     </SafeAreaView>
   );

@@ -89,10 +89,7 @@ export async function fetchUkony(accessToken: string): Promise<UkonItem[]> {
   const rows = await listAllSharePointItems(
     accessToken,
     env.sharePointListUkonyId,
-    {
-      selectFields,
-      debugLabel: "Ukony",
-    },
+    { selectFields },
   );
 
   const items: UkonItem[] = [];

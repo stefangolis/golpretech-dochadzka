@@ -97,7 +97,6 @@ export async function listAllSharePointItems(
   options?: {
     filter?: string;
     selectFields?: string[];
-    debugLabel?: string;
   },
 ): Promise<Array<{ id: string; fields: Record<string, unknown> }>> {
   assertSharePointConfig();
@@ -120,15 +119,6 @@ export async function listAllSharePointItems(
         Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
       },
     });
-    // TODO odstrániť po odladení
-    if (options?.debugLabel) {
-      console.log(
-        `[${options.debugLabel}]`,
-        url,
-        `HTTP ${res.status}`,
-        `totalSoFar=${items.length}`,
-      );
-    }
     if (!res.ok) {
       const body = await res.text();
       throw new Error(formatSharePointHttpError(res.status, listId, body));
@@ -139,11 +129,6 @@ export async function listAllSharePointItems(
       items.push({ id: row.id, fields: row.fields });
     }
     url = page["@odata.nextLink"] ?? "";
-  }
-
-  // TODO odstrániť po odladení
-  if (options?.debugLabel) {
-    console.log(`[${options.debugLabel}] done items=${items.length}`);
   }
 
   return items;

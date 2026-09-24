@@ -96,6 +96,27 @@ export function resolveListColumn(
   return null;
 }
 
+/**
+ * Presná zhoda interného alebo zobrazovaného názvu, bez hľadania podreťazca.
+ * Pre krátke názvy (Od, Do, Stav), ktoré sa nachádzajú aj v iných stĺpcoch.
+ */
+export function resolveListColumnExact(
+  columns: ListColumnInfo[],
+  names: string[],
+): string | null {
+  for (const name of names) {
+    const byName = columns.find((c) => c.name === name);
+    if (byName) return byName.name;
+  }
+  for (const name of names) {
+    const byDisplay = columns.find(
+      (c) => norm(c.displayName) === norm(name),
+    );
+    if (byDisplay) return byDisplay.name;
+  }
+  return null;
+}
+
 export function fieldString(
   fields: Record<string, unknown>,
   columnName: string | null | undefined,

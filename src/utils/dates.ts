@@ -41,6 +41,13 @@ export function dayAfterDateOnly(dateOnly: string): string {
   return toDateOnly(d);
 }
 
+/** Dátum posunutý o N kalendárnych dní (YYYY-MM-DD) */
+export function addDaysDateOnly(dateOnly: string, days: number): string {
+  const d = parseDateOnly(dateOnly);
+  d.setDate(d.getDate() + days);
+  return toDateOnly(d);
+}
+
 /** Počet kalendárnych dní vrátane krajných (Od–Do) */
 export function inclusiveDayCount(od: string, doDate: string): number {
   const a = parseDateOnly(od).getTime();

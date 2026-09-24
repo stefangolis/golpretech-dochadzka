@@ -5,6 +5,8 @@ import {
   fieldString,
   asSharePointValue,
   resolveListColumn,
+  resolveListColumnExact,
+  type ListColumnInfo,
 } from "./listColumns";
 
 export type RezervaciaStav =
@@ -61,6 +63,22 @@ export type Rezervacia = {
 
 let cached: RezervaciaColumnMap | null = null;
 
+function requireExactColumn(
+  columns: ListColumnInfo[],
+  names: string[],
+  label: string,
+): string {
+  const resolved = resolveListColumnExact(columns, names);
+  if (!resolved) {
+    const available =
+      columns.map((c) => `${c.displayName} (${c.name})`).join(", ") || "—";
+    throw new Error(
+      `V zozname Rezervacie chýba stĺpec ${label}. Dostupné stĺpce: ${available}`,
+    );
+  }
+  return resolved;
+}
+
 export async function getRezervaciaColumnMap(
   accessToken: string,
 ): Promise<RezervaciaColumnMap> {
@@ -77,7 +95,7 @@ export async function getRezervaciaColumnMap(
     env.sharePointListRezervacieId,
   );
 
-  cached = {
+  const map: RezervaciaColumnMap = {
     title: resolveListColumn(columns, ["Title"], ["nadpis"]) ?? "Title",
     vozidloSpz:
       resolveListColumn(columns, ["VozidloSPZ", "VozidloSpz", "SPZ"], [
@@ -90,8 +108,8 @@ export async function getRezervaciaColumnMap(
         ["ZamestnanecEmail", "Email", "EmployeeEmail"],
         ["email", "zamestnanec"],
       ) ?? "ZamestnanecEmail",
-    od: resolveListColumn(columns, ["Od", "OdDatum", "DateFrom"], ["od"]) ?? "Od",
-    do: resolveListColumn(columns, ["Do", "DoDatum", "DateTo"], ["do"]) ?? "Do",
+    od: requireExactColumn(columns, ["Od", "OdDatum", "DateFrom"], "Od"),
+    do: requireExactColumn(columns, ["Do", "DoDatum", "DateTo"], "Do"),
     zakazkaId:
       resolveListColumn(columns, ["ZakazkaId", "Zakazka"], ["zakazka"]) ?? null,
     cielCesty:
@@ -99,7 +117,7 @@ export async function getRezervaciaColumnMap(
         "ciel",
         "cieľ",
       ]) ?? null,
-    stav: resolveListColumn(columns, ["Stav", "Status"], ["stav"]) ?? "Stav",
+    stav: requireExactColumn(columns, ["Stav", "Status"], "Stav"),
     prevzatieCas:
       resolveListColumn(columns, ["PrevzatieCas"], ["prevzatiecas"]) ?? null,
     prevzatieKm:
@@ -128,6 +146,14 @@ export async function getRezervaciaColumnMap(
         "notifoneskor",
       ]) ?? null,
   };
+
+  if (map.od === map.do) {
+    throw new Error(
+      `Stĺpce Od a Do v zozname Rezervacie ukazujú na ten istý stĺpec (${map.od}).`,
+    );
+  }
+
+  cached = map;
   return cached;
 }
 

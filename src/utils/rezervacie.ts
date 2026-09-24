@@ -1,10 +1,16 @@
 import type { Rezervacia } from "../api/rezervacieFields";
 import type { Vozidlo } from "../api/vozidlaFields";
 import {
+  dayAfterDateOnly,
   daysAheadDateOnly,
   formatDateShort,
   parseDateOnly,
 } from "./dates";
+
+/** Maximálna dĺžka rezervácie (dni vrátane). */
+export const REZERVACIA_MAX_DAYS = 30;
+/** Ako ďaleko dopredu sa dá rezervovať (dni od dnes). */
+export const REZERVACIA_MAX_DAYS_AHEAD = 90;
 
 /** Inkluzívne prekrytie dátumových úsekov (YYYY-MM-DD). */
 export function prekryv(
@@ -34,6 +40,34 @@ export function najdiKolizie(
     if (r.stav !== "Rezervovane" && r.stav !== "Prevzate") return false;
     return prekryv(kandidat.od, kandidat.do, r.od, r.do);
   });
+}
+
+/**
+ * Obsadené dni vozidla v okne [od, do] (aktívne rezervácie).
+ * `excludeId` = upravovaná rezervácia, ktorej dni sa neberú ako obsadené.
+ */
+export function obsadeneDniVozidla(
+  rezervacie: readonly Rezervacia[],
+  vozidloSpz: string,
+  od: string,
+  doDate: string,
+  excludeId?: string,
+): Set<string> {
+  const set = new Set<string>();
+  const spz = vozidloSpz.trim().toLowerCase();
+  if (!spz) return set;
+  for (const r of rezervacie) {
+    if (excludeId && r.id === excludeId) continue;
+    if (r.vozidloSpz.trim().toLowerCase() !== spz) continue;
+    if (r.stav !== "Rezervovane" && r.stav !== "Prevzate") continue;
+    let d = r.od < od ? od : r.od;
+    const end = r.do > doDate ? doDate : r.do;
+    while (d <= end) {
+      set.add(d);
+      d = dayAfterDateOnly(d);
+    }
+  }
+  return set;
 }
 
 /** Meno rezervujúceho z Title („… · meno“) alebo z emailu. */

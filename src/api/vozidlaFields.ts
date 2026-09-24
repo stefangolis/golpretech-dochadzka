@@ -155,13 +155,6 @@ export async function fetchVozidla(accessToken: string): Promise<Vozidlo[]> {
     },
   );
 
-  // TODO odstrániť po odladení
-  console.log(
-    "[fetchVozidla]",
-    `items=${rows.length}`,
-    rows[0]?.fields ?? null,
-  );
-
   const items: Vozidlo[] = [];
   for (const row of rows) {
     const parsed = parseVozidloRow(row.id, row.fields, cols);

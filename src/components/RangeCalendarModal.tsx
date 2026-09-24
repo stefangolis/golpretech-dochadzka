@@ -19,9 +19,17 @@ type Props = {
   maxDays?: number;
   /** Dni, keď je vybrané vozidlo už obsadené (YYYY-MM-DD). */
   busyDates?: ReadonlySet<string>;
+  /** Od je zamknuté (môže byť aj pred minDate), ťuknutie mení len Do. */
+  fixedStart?: boolean;
+  title?: string;
   onConfirm: (od: string, doDate: string) => void;
   onClose: () => void;
 };
+
+function initialMonth(od: string, minDate: string): Date {
+  const anchor = od && od > minDate ? od : minDate;
+  return monthStart(parseDateOnly(anchor));
+}
 
 const WEEKDAYS = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
 
@@ -62,6 +70,8 @@ export function RangeCalendarModal({
   maxDate,
   maxDays,
   busyDates,
+  fixedStart = false,
+  title = "Termín rezervácie",
   onConfirm,
   onClose,
 }: Props) {
@@ -70,7 +80,7 @@ export function RangeCalendarModal({
   const [end, setEnd] = useState<string | null>(doDate || null);
   const [hint, setHint] = useState<string | null>(null);
   const [viewMonth, setViewMonth] = useState(() =>
-    monthStart(parseDateOnly(od || minDate)),
+    initialMonth(od, minDate),
   );
 
   useEffect(() => {
@@ -78,7 +88,7 @@ export function RangeCalendarModal({
     setStart(od || null);
     setEnd(doDate || null);
     setHint(null);
-    setViewMonth(monthStart(parseDateOnly(od || minDate)));
+    setViewMonth(initialMonth(od, minDate));
   }, [visible, od, doDate, minDate]);
 
   const cells = useMemo(() => {
@@ -118,8 +128,10 @@ export function RangeCalendarModal({
       setHint("Vozidlo je v tento deň už rezervované.");
       return;
     }
-    // Začať nový výber
-    if (!start || end || d < start) {
+    if (fixedStart) {
+      if (!start || d < start) return;
+    } else if (!start || end || d < start) {
+      // Začať nový výber
       setStart(d);
       setEnd(null);
       return;
@@ -149,11 +161,13 @@ export function RangeCalendarModal({
           style={[styles.sheet, { marginBottom: insets.bottom }]}
           onPress={(e) => e.stopPropagation()}
         >
-          <Text style={styles.title}>Termín rezervácie</Text>
+          <Text style={styles.title}>{title}</Text>
           <Text style={styles.help}>
-            {start && !end
-              ? "Ťuknite na posledný deň (alebo potvrďte 1 deň)"
-              : "Ťuknite na prvý a potom na posledný deň"}
+            {fixedStart
+              ? "Začiatok sa nemení — ťuknite na nový posledný deň"
+              : start && !end
+                ? "Ťuknite na posledný deň (alebo potvrďte 1 deň)"
+                : "Ťuknite na prvý a potom na posledný deň"}
           </Text>
 
           <View style={styles.navRow}>

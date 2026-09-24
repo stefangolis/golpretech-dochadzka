@@ -3,7 +3,8 @@ import {
   createRezervacia,
   fetchMojeRezervacie,
   fetchRezervacieVRozsahu,
-  predlzitRezervaciu,
+  upravitRezervaciu,
+  zmenitKoniecRezervacie,
   zrusitRezervaciu,
 } from "../api/rezervacieData";
 import { fetchVozidla } from "../api/vozidlaFields";
@@ -104,7 +105,34 @@ export function useZrusitRezervaciu() {
   });
 }
 
-export function usePredlzitRezervaciu() {
+export function useUpravitRezervaciu() {
+  const { getValidAccessToken, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      nazovVozidla: string;
+      od: string;
+      do: string;
+      zakazkaId: string;
+      cielCesty: string;
+    }) => {
+      if (!user) throw new Error("Nie ste prihlásený.");
+      const token = await getValidAccessToken();
+      const { id, ...rest } = input;
+      await upravitRezervaciu(token, id, {
+        ...rest,
+        displayName: user.displayName || user.email,
+      });
+    },
+    onSuccess: async () => {
+      await invalidateRezervacieQueries(queryClient, user?.email);
+    },
+  });
+}
+
+export function useZmenitKoniecRezervacie() {
   const { getValidAccessToken, user } = useAuth();
   const queryClient = useQueryClient();
 
@@ -117,7 +145,7 @@ export function usePredlzitRezervaciu() {
     }) => {
       if (!user) throw new Error("Nie ste prihlásený.");
       const token = await getValidAccessToken();
-      await predlzitRezervaciu(token, input.id, {
+      await zmenitKoniecRezervacie(token, input.id, {
         noveDo: input.noveDo,
         nazovVozidla: input.nazovVozidla,
         od: input.od,
