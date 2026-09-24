@@ -1,3 +1,4 @@
+import { asSharePointYesNo } from "./listColumns";
 import type { ParsedObjednavka } from "./objednavkaFields";
 import type { ParsedZakazka } from "./zakazkaFields";
 import type { TimeEntry, WorkItem } from "../types/workItems";
@@ -13,6 +14,8 @@ export type WorkCatalog = {
   pickerItems: WorkItem[];
   /** Aktívne zákazky (+ historické doplnené podľa potreby). */
   zakazkyById: ZakazkaLookup;
+  /** TODO odstrániť po odladení — diagnostika pri prázdnom výbere. */
+  debug?: string;
 };
 
 function isActiveOrderStatus(stav: string): boolean {
@@ -95,14 +98,14 @@ export function buildPickerWorkItems(
 
     const key = zakazkaLookupKey(order.zakazkaId);
     const zak = zakazkaById[key];
-    if (!zak?.stavAktivna) continue;
+    if (!zak || !asSharePointYesNo(zak.stavAktivna)) continue;
 
     zakazkaIdsWithActiveOrder.add(key);
     items.push(workItemFromObjednavka(order, zak));
   }
 
   for (const zak of zakazky) {
-    if (!zak.zakazkaId || !zak.stavAktivna) continue;
+    if (!zak.zakazkaId || !asSharePointYesNo(zak.stavAktivna)) continue;
     const key = zakazkaLookupKey(zak.zakazkaId);
     if (zakazkaIdsWithActiveOrder.has(key)) continue;
     items.push(workItemFromZakazka(zak));

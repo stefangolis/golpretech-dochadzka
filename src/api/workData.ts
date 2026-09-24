@@ -19,7 +19,7 @@ import {
   readTimeEntryFromFields,
   validateCreatePayload,
 } from "./timeEntryFields";
-import { asSharePointValue } from "./listColumns";
+import { asSharePointValue, asSharePointYesNo } from "./listColumns";
 import {
   createSharePointItem,
   escapeODataString,
@@ -29,6 +29,7 @@ import {
 import {
   getZakazkaColumnMap,
   parseZakazkaRow,
+  zakazkaSelectFields,
   type ParsedZakazka,
   type ZakazkaColumnMap,
 } from "./zakazkaFields";
@@ -56,10 +57,77 @@ function normalizeDateField(v: unknown): string {
   return s.slice(0, 10);
 }
 
-function zakazkaSelectFields(cols: ZakazkaColumnMap): string[] {
-  const fields = [cols.title, cols.zakazkaId, cols.zakaznik, cols.stavAktivna];
-  if (cols.nazov) fields.push(cols.nazov);
-  return [...new Set(fields)];
+function isFilterHttpError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("HTTP 400") || msg.includes("HTTP 403");
+}
+
+async function listItemsWithFilterFallback(
+  accessToken: string,
+  listId: string,
+  options: {
+    filter: string;
+    selectFields: string[];
+    debugLabel: string;
+    /** Áno/Nie $filter často vráti 0 riadkov bez chyby — načítaj všetko. */
+    reloadAllIfEmpty?: boolean;
+  },
+): Promise<Array<{ id: string; fields: Record<string, unknown> }>> {
+  try {
+    const rows = await listAllSharePointItems(accessToken, listId, {
+      filter: options.filter,
+      selectFields: options.selectFields,
+      debugLabel: options.debugLabel,
+    });
+    if (options.reloadAllIfEmpty && rows.length === 0) {
+      return listAllSharePointItems(accessToken, listId, {
+        selectFields: options.selectFields,
+        debugLabel: `${options.debugLabel}-all`,
+      });
+    }
+    return rows;
+  } catch (err) {
+    if (!isFilterHttpError(err)) throw err;
+    return listAllSharePointItems(accessToken, listId, {
+      selectFields: options.selectFields,
+      debugLabel: `${options.debugLabel}-all`,
+    });
+  }
+}
+
+/**
+ * Aktívne zákazky. Pozor: SharePoint cez Graph vyhodnotí `eq true` na stĺpci
+ * Áno/Nie opačne (vráti položky s Nie). Preto filtrujeme `eq 1`, výsledok
+ * overíme a pri akejkoľvek nezrovnalosti načítame všetko a filtrujeme v kóde.
+ */
+async function fetchActiveZakazkyRows(
+  accessToken: string,
+  cols: ZakazkaColumnMap,
+): Promise<Array<{ id: string; fields: Record<string, unknown> }>> {
+  const selectFields = zakazkaSelectFields(cols);
+  try {
+    const rows = await listAllSharePointItems(
+      accessToken,
+      env.sharePointListZakazkyId,
+      {
+        filter: `fields/${cols.stavAktivna} eq 1`,
+        selectFields,
+        debugLabel: "Zakazky",
+      },
+    );
+    const allActive =
+      rows.length > 0 &&
+      rows.every((r) => asSharePointYesNo(r.fields[cols.stavAktivna]));
+    if (allActive) return rows;
+  } catch (err) {
+    if (!isFilterHttpError(err)) throw err;
+  }
+  const all = await listAllSharePointItems(
+    accessToken,
+    env.sharePointListZakazkyId,
+    { selectFields, debugLabel: "Zakazky-all" },
+  );
+  return all.filter((r) => asSharePointYesNo(r.fields[cols.stavAktivna]));
 }
 
 async function fetchZakazkaByZakazkaId(
@@ -125,40 +193,59 @@ export async function fetchWorkCatalog(
     getObjednavkaColumnMap(accessToken),
   ]);
 
-  const [activeZakazkyRows, objRows] = await Promise.all([
-    listAllSharePointItems(accessToken, env.sharePointListZakazkyId, {
-      filter: `fields/${zakCols.stavAktivna} eq true`,
-      selectFields: zakazkaSelectFields(zakCols),
-    }),
-    listAllSharePointItems(accessToken, env.sharePointListObjednavkyId, {
-      filter: "fields/Stav ne 'Neaktivna'",
-      selectFields: [
-        objCols.title,
-        objCols.zakazkaId,
-        objCols.zakaznik,
-        objCols.stav,
-      ],
+  const objSelect = [
+    objCols.title,
+    objCols.zakazkaId,
+    objCols.zakaznik,
+    objCols.stav,
+  ];
+
+  const [zakazkyRows, objRows] = await Promise.all([
+    fetchActiveZakazkyRows(accessToken, zakCols),
+    listItemsWithFilterFallback(accessToken, env.sharePointListObjednavkyId, {
+      filter: `fields/${objCols.stav} ne 'Neaktivna'`,
+      selectFields: objSelect,
+      debugLabel: "PrijateObjednavky",
     }),
   ]);
 
-  console.log(
-    `[fetchWorkCatalog] zakazky=${activeZakazkyRows.length} objednavky=${objRows.length} ${Date.now() - started}ms`,
-  );
-
   const zakazky: ParsedZakazka[] = [];
-  for (const row of activeZakazkyRows) {
+  for (const row of zakazkyRows) {
     const parsed = parseZakazkaRow(row.fields, zakCols);
     if (!parsed.zakazkaId) continue;
     zakazky.push(parsed);
   }
 
+  const activeZakazky = zakazky.filter((z) => asSharePointYesNo(z.stavAktivna));
+
   const objednavky = objRows.map((row) =>
     parseObjednavkaRow(row.fields, objCols),
   );
 
+  const pickerItems = buildPickerWorkItems(zakazky, objednavky);
+
+  // TODO odstrániť po odladení
+  console.log(
+    "[fetchWorkCatalog] stavAktivnaColumn=",
+    zakCols.stavAktivna,
+    "sampleFields=",
+    zakazkyRows.slice(0, 3).map((r) => r.fields),
+  );
+  console.log(
+    `[fetchWorkCatalog] zakazky=${zakazkyRows.length} sId=${zakazky.length} aktivne=${activeZakazky.length} objednavky=${objRows.length} picker=${pickerItems.length} ${Date.now() - started}ms`,
+  );
+
+  const sample = zakazkyRows[0]?.fields ?? {};
+  const debug =
+    `zakazky=${zakazkyRows.length} sId=${zakazky.length} aktivne=${activeZakazky.length} ` +
+    `objednavky=${objRows.length} picker=${pickerItems.length}\n` +
+    `stlpce: id=${zakCols.zakazkaId} aktivna=${zakCols.stavAktivna}\n` +
+    `vzorka: ${JSON.stringify(sample).slice(0, 300)}`;
+
   return {
-    pickerItems: buildPickerWorkItems(zakazky, objednavky),
+    pickerItems,
     zakazkyById: zakazkyLookupMap(zakazky),
+    debug,
   };
 }
 

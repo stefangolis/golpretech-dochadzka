@@ -27,6 +27,27 @@ export function daysAgoDateOnly(days: number): string {
   return toDateOnly(d);
 }
 
+/** Dátum o N dní dopredu od dnes (0 = dnes) */
+export function daysAheadDateOnly(days: number): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+  return toDateOnly(d);
+}
+
+/** Nasledujúci kalendárny deň (YYYY-MM-DD) */
+export function dayAfterDateOnly(dateOnly: string): string {
+  const d = parseDateOnly(dateOnly);
+  d.setDate(d.getDate() + 1);
+  return toDateOnly(d);
+}
+
+/** Počet kalendárnych dní vrátane krajných (Od–Do) */
+export function inclusiveDayCount(od: string, doDate: string): number {
+  const a = parseDateOnly(od).getTime();
+  const b = parseDateOnly(doDate).getTime();
+  return Math.round((b - a) / 86_400_000) + 1;
+}
+
 /** Najstarší dátum pre nový zápis (YYYY-MM-DD) */
 export function minEntryDateOnly(): string {
   return daysAgoDateOnly(ENTRY_DAYS_BACK - 1);

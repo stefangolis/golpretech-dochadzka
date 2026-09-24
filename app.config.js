@@ -54,6 +54,8 @@ module.exports = {
     sharePointListObjednavkyId: env("SHAREPOINT_LIST_OBJEDNAVKY_ID"),
     sharePointListZaznamyId: env("SHAREPOINT_LIST_ZAZNAMY_ID"),
     sharePointListUkonyId: env("SHAREPOINT_LIST_UKONY_ID"),
+    sharePointListVozidlaId: env("SHAREPOINT_LIST_VOZIDLA_ID"),
+    sharePointListRezervacieId: env("SHAREPOINT_LIST_REZERVACIE_ID"),
     eas: {
       projectId: "bcabec9d-2a1f-43e9-828d-a0d57b3be143",
     },

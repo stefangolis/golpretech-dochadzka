@@ -4,6 +4,7 @@ import {
   fieldString,
   asSharePointValue,
   resolveListColumn,
+  type ListColumnInfo,
 } from "./listColumns";
 
 export type ObjednavkaColumnMap = {
@@ -14,6 +15,26 @@ export type ObjednavkaColumnMap = {
 };
 
 let cached: ObjednavkaColumnMap | null = null;
+
+function columnSummary(columns: ListColumnInfo[]): string {
+  return columns.map((c) => `${c.displayName} (${c.name})`).join(", ") || "—";
+}
+
+function requireColumn(
+  columns: ListColumnInfo[],
+  preferredNames: string[],
+  displayHints: string[],
+  label: string,
+): string {
+  const resolved = resolveListColumn(columns, preferredNames, displayHints);
+  if (!resolved) {
+    throw new Error(
+      `V zozname Prijaté objednávky chýba stĺpec ${label}. ` +
+        `Dostupné stĺpce: ${columnSummary(columns)}`,
+    );
+  }
+  return resolved;
+}
 
 export async function getObjednavkaColumnMap(
   accessToken: string,
@@ -27,14 +48,20 @@ export async function getObjednavkaColumnMap(
   );
 
   cached = {
-    title: resolveListColumn(columns, ["Title"], ["nadpis"]) ?? "Title",
-    zakazkaId:
-      resolveListColumn(columns, ["ZakazkaId", "Zakazka"], ["zakazka"]) ??
+    title: requireColumn(columns, ["Title"], ["nadpis"], "Title"),
+    zakazkaId: requireColumn(
+      columns,
+      ["ZakazkaId", "Zakazka"],
+      ["zakazka"],
       "ZakazkaId",
-    zakaznik:
-      resolveListColumn(columns, ["Zakaznik", "Zakaznik0"], ["zakaznik"]) ??
+    ),
+    zakaznik: requireColumn(
+      columns,
+      ["Zakaznik", "Zakaznik0"],
+      ["zakaznik"],
       "Zakaznik",
-    stav: resolveListColumn(columns, ["Stav"], ["stav"]) ?? "Stav",
+    ),
+    stav: requireColumn(columns, ["Stav"], ["stav"], "Stav"),
   };
   return cached;
 }

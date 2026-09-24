@@ -4,15 +4,22 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthContext";
 import { HomeScreen } from "../screens/HomeScreen";
+import { HubScreen } from "../screens/HubScreen";
 import { LoginScreen } from "../screens/LoginScreen";
+import { VozidlaNavigator } from "../screens/vozidla/VozidlaNavigator";
 import { colors } from "../theme";
 
 export type RootStackParamList = {
   Login: undefined;
+  Hub: undefined;
   Home: undefined;
+  Vozidla: undefined;
 };
 
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const AuthStack = createNativeStackNavigator<Pick<RootStackParamList, "Login">>();
+const AppStack = createNativeStackNavigator<
+  Omit<RootStackParamList, "Login">
+>();
 
 export function RootNavigator() {
   const { ready, user } = useAuth();
@@ -26,14 +33,24 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {user ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
-        ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
-        )}
-      </Stack.Navigator>
+    <NavigationContainer key={user ? "app" : "auth"}>
+      {user ? (
+        <AppStack.Navigator
+          initialRouteName="Hub"
+          screenOptions={{ headerShown: false }}
+        >
+          <AppStack.Screen name="Hub" component={HubScreen} />
+          <AppStack.Screen name="Home" component={HomeScreen} />
+          <AppStack.Screen name="Vozidla" component={VozidlaNavigator} />
+        </AppStack.Navigator>
+      ) : (
+        <AuthStack.Navigator
+          initialRouteName="Login"
+          screenOptions={{ headerShown: false }}
+        >
+          <AuthStack.Screen name="Login" component={LoginScreen} />
+        </AuthStack.Navigator>
+      )}
     </NavigationContainer>
   );
 }

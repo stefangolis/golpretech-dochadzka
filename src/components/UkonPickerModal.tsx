@@ -19,6 +19,7 @@ type Props = {
   error: unknown;
   selectedNazov: string | null;
   onSelect: (item: UkonItem) => void;
+  onRetry?: () => void;
 };
 
 export function UkonPickerModal({
@@ -30,6 +31,7 @@ export function UkonPickerModal({
   error,
   selectedNazov,
   onSelect,
+  onRetry,
 }: Props) {
   return (
     <BottomSheetModal visible={visible} title="Úkon" onClose={onClose}>
@@ -39,11 +41,18 @@ export function UkonPickerModal({
           color={colors.primary}
         />
       ) : isError ? (
-        <Text style={styles.error}>
-          {error instanceof Error
-            ? error.message
-            : "Nepodarilo sa načítať úkony."}
-        </Text>
+        <>
+          <Text style={styles.error} selectable>
+            {error instanceof Error
+              ? error.message
+              : "Nepodarilo sa načítať úkony."}
+          </Text>
+          {onRetry ? (
+            <Pressable style={styles.retryBtn} onPress={onRetry}>
+              <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : (
         <ScrollView keyboardShouldPersistTaps="handled" style={styles.list}>
           {(ukony ?? []).map((item) => (
@@ -92,4 +101,19 @@ const styles = StyleSheet.create({
   optionTextActive: { color: colors.primary },
   muted: { fontSize: font.sm, color: colors.muted },
   error: { fontSize: font.sm, color: colors.danger },
+  retryBtn: {
+    alignSelf: "flex-start",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  retryBtnText: {
+    fontSize: font.sm,
+    fontWeight: "700",
+    color: colors.primary,
+  },
 });

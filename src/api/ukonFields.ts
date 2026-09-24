@@ -5,6 +5,7 @@ import {
   fetchListColumns,
   fieldString,
   asSharePointValue,
+  asSharePointYesNo,
   resolveListColumn,
 } from "./listColumns";
 import { listAllSharePointItems } from "./sharepointClient";
@@ -61,13 +62,6 @@ function asNumber(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function asBool(v: unknown): boolean {
-  if (typeof v === "boolean") return v;
-  if (v === 1 || v === "1" || v === "true" || v === "Yes") return true;
-  const s = asSharePointValue(v).toLowerCase();
-  return s === "áno" || s === "ano" || s === "yes";
-}
-
 function buildUkonItem(
   id: string,
   nazov: string,
@@ -89,9 +83,16 @@ export async function fetchUkony(accessToken: string): Promise<UkonItem[]> {
   }
 
   const cols = await getUkonColumnMap(accessToken);
+  const selectFields = [cols.title, cols.minutovaSadzba];
+  if (cols.aktivny) selectFields.push(cols.aktivny);
+
   const rows = await listAllSharePointItems(
     accessToken,
     env.sharePointListUkonyId,
+    {
+      selectFields,
+      debugLabel: "Ukony",
+    },
   );
 
   const items: UkonItem[] = [];
@@ -100,10 +101,7 @@ export async function fetchUkony(accessToken: string): Promise<UkonItem[]> {
     const nazov = fieldString(f, cols.title);
     if (!nazov) continue;
 
-    if (cols.aktivny) {
-      const aktivny = asBool(f[cols.aktivny]);
-      if (!aktivny) continue;
-    }
+    if (cols.aktivny && !asSharePointYesNo(f[cols.aktivny])) continue;
 
     const minutovaSadzba = asNumber(f[cols.minutovaSadzba]);
     items.push(buildUkonItem(row.id, nazov, minutovaSadzba));

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +15,7 @@ import {
 import { BottomSheetModal } from "./BottomSheetModal";
 import { CalendarModal } from "./CalendarModal";
 import { UkonPickerModal } from "./UkonPickerModal";
+import { WorkItemPickerModal } from "./WorkItemPickerModal";
 import { findUkonByNazov } from "../api/ukonFields";
 import { enrichZakazkyLookupForEntries } from "../api/workData";
 import { MINUTE_PRESETS } from "../constants/minutes";
@@ -228,7 +228,6 @@ function EditEntryModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [workOpen, setWorkOpen] = useState(false);
-  const [workSearch, setWorkSearch] = useState("");
   const [minutesOpen, setMinutesOpen] = useState(false);
   const [ukonOpen, setUkonOpen] = useState(false);
 
@@ -242,12 +241,6 @@ function EditEntryModal({
     if (!selectedKey) return null;
     return pickerItems.find((i) => i.key === selectedKey) ?? null;
   }, [selectedKey, pickerItems]);
-
-  const filteredWorkItems = useMemo(() => {
-    const q = workSearch.trim().toLowerCase();
-    if (!q) return pickerItems;
-    return pickerItems.filter((i) => i.searchText.includes(q));
-  }, [workSearch, pickerItems]);
 
   const validUkonNames = useMemo(
     () => ukonyQuery.data?.map((u) => u.nazov) ?? [],
@@ -270,7 +263,6 @@ function EditEntryModal({
     setRework(entry.rework);
     setNote(entry.poznamka);
     setFormError(null);
-    setWorkSearch("");
 
     const fromList = findUkonByNazov(ukonyQuery.data ?? [], entry.ukon);
     if (fromList) {
@@ -364,7 +356,7 @@ function EditEntryModal({
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.editScrollContent}
             >
-            <Text style={styles.label}>Dátum</Text>
+            <Text style={styles.label}>Dátum *</Text>
             <View style={styles.dateRow}>
               <DateChip
                 title="Dnes"
@@ -394,18 +386,15 @@ function EditEntryModal({
             </View>
             <Text style={styles.dateValue}>{formatDateSk(dateOnly)}</Text>
 
-            <Text style={styles.label}>Zákazka / objednávka</Text>
+            <Text style={styles.label}>Zákazka / objednávka *</Text>
             <Pressable
               style={styles.selectBtn}
-              onPress={() => {
-                setWorkSearch("");
-                setWorkOpen(true);
-              }}
+              onPress={() => setWorkOpen(true)}
             >
               {workDisplay}
             </Pressable>
 
-            <Text style={styles.label}>Minúty</Text>
+            <Text style={styles.label}>Minúty *</Text>
             <View style={styles.minutesRow}>
               <Pressable
                 style={styles.minutesDropdown}
@@ -429,7 +418,7 @@ function EditEntryModal({
               />
             </View>
 
-            <Text style={styles.label}>Úkon</Text>
+            <Text style={styles.label}>Úkon *</Text>
             <Pressable
               style={styles.selectBtn}
               onPress={() => setUkonOpen(true)}
@@ -508,59 +497,12 @@ function EditEntryModal({
         minDate={myEntriesMinDateOnly()}
       />
 
-      <BottomSheetModal
+      <WorkItemPickerModal
         visible={workOpen}
-        title="Zákazka / objednávka"
+        selectedKey={selectedKey}
+        onSelect={(item) => setSelectedKey(item.key)}
         onClose={() => setWorkOpen(false)}
-        tall
-        dismissOnBackdrop={false}
-      >
-        <TextInput
-          style={styles.input}
-          value={workSearch}
-          onChangeText={setWorkSearch}
-          placeholder="Hľadať kód, názov, zákazníka…"
-          placeholderTextColor={colors.muted}
-          autoCorrect={false}
-          autoCapitalize="none"
-          autoFocus
-        />
-        {workCatalogQuery.isLoading ? (
-          <ActivityIndicator
-            style={{ marginVertical: spacing.md }}
-            color={colors.primary}
-          />
-        ) : workCatalogQuery.isError ? (
-          <Text style={styles.error}>
-            {workCatalogQuery.error instanceof Error
-              ? workCatalogQuery.error.message
-              : "Nepodarilo sa načítať zoznam."}
-          </Text>
-        ) : (
-          <FlatList
-            data={filteredWorkItems}
-            keyExtractor={(item) => item.key}
-            keyboardShouldPersistTaps="handled"
-            style={styles.modalList}
-            ListEmptyComponent={
-              <Text style={styles.muted}>Nič nenájdené.</Text>
-            }
-            renderItem={({ item }) => (
-              <WorkItemOption
-                item={item}
-                selected={item.key === selectedKey}
-                onPress={() => {
-                  setSelectedKey(item.key);
-                  setWorkOpen(false);
-                }}
-              />
-            )}
-          />
-        )}
-        <Pressable style={styles.modalCloseBtn} onPress={() => setWorkOpen(false)}>
-          <Text style={styles.modalCloseText}>Zavrieť</Text>
-        </Pressable>
-      </BottomSheetModal>
+      />
 
       <BottomSheetModal
         visible={minutesOpen}
@@ -600,6 +542,7 @@ function EditEntryModal({
         error={ukonyQuery.error}
         selectedNazov={selectedUkon?.nazov ?? null}
         onSelect={setSelectedUkon}
+        onRetry={() => void ukonyQuery.refetch()}
       />
     </>
   );
@@ -641,28 +584,6 @@ function DateChip({
       >
         {title}
       </Text>
-    </Pressable>
-  );
-}
-
-function WorkItemOption({
-  item,
-  selected,
-  onPress,
-}: {
-  item: WorkItem;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.workOption, selected && styles.workOptionSelected]}
-    >
-      <Text style={styles.workOptionLabel}>{item.label}</Text>
-      {item.subtitle ? (
-        <Text style={styles.workOptionSub}>{item.subtitle}</Text>
-      ) : null}
     </Pressable>
   );
 }

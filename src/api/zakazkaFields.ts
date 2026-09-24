@@ -2,8 +2,9 @@ import { env } from "../config/env";
 import {
   fetchListColumns,
   fieldString,
-  asSharePointValue,
+  asSharePointYesNo,
   resolveListColumn,
+  type ListColumnInfo,
 } from "./listColumns";
 
 export type ZakazkaColumnMap = {
@@ -16,6 +17,26 @@ export type ZakazkaColumnMap = {
 
 let cached: ZakazkaColumnMap | null = null;
 
+function columnSummary(columns: ListColumnInfo[]): string {
+  return columns.map((c) => `${c.displayName} (${c.name})`).join(", ") || "—";
+}
+
+function requireColumn(
+  columns: ListColumnInfo[],
+  preferredNames: string[],
+  displayHints: string[],
+  label: string,
+): string {
+  const resolved = resolveListColumn(columns, preferredNames, displayHints);
+  if (!resolved) {
+    throw new Error(
+      `V zozname Zákazky chýba stĺpec ${label}. ` +
+        `Dostupné stĺpce: ${columnSummary(columns)}`,
+    );
+  }
+  return resolved;
+}
+
 export async function getZakazkaColumnMap(
   accessToken: string,
 ): Promise<ZakazkaColumnMap> {
@@ -27,19 +48,28 @@ export async function getZakazkaColumnMap(
     env.sharePointListZakazkyId,
   );
 
-  const zakazkaId =
-    resolveListColumn(columns, ["ZakazkaId", "Zakazka"], ["zakazka"]) ??
-    "ZakazkaId";
-  const title = resolveListColumn(columns, ["Title"], ["nadpis"]) ?? "Title";
-  const zakaznik =
-    resolveListColumn(columns, ["Zakaznik", "Zakaznik0"], ["zakaznik"]) ??
-    "Zakaznik";
-  const nazov = resolveListColumn(columns, ["Nazov", "Nazov0"], ["nazov"]);
-  const stavAktivna =
-    resolveListColumn(columns, ["StavAktivna"], ["stavaktivna", "aktivna"]) ??
-    "StavAktivna";
-
-  cached = { title, zakazkaId, zakaznik, nazov, stavAktivna };
+  cached = {
+    title: requireColumn(columns, ["Title"], ["nadpis"], "Title"),
+    zakazkaId: requireColumn(
+      columns,
+      ["ZakazkaId", "Zakazka"],
+      ["zakazka"],
+      "ZakazkaId",
+    ),
+    zakaznik: requireColumn(
+      columns,
+      ["Zakaznik", "Zakaznik0"],
+      ["zakaznik"],
+      "Zakaznik",
+    ),
+    nazov: resolveListColumn(columns, ["Nazov", "Nazov0"], ["nazov"]),
+    stavAktivna: requireColumn(
+      columns,
+      ["StavAktivna", "Aktivna"],
+      ["stavaktivna"],
+      "StavAktivna",
+    ),
+  };
   return cached;
 }
 
@@ -64,18 +94,13 @@ export function parseZakazkaRow(
     nazovCol ||
     (title && title.toLowerCase() !== zakazkaId.toLowerCase() ? title : "");
 
-  const stavRaw = fields[cols.stavAktivna];
-  const stavAktivna = asStavAktivna(stavRaw);
+  const stavAktivna = asSharePointYesNo(fields[cols.stavAktivna]);
 
   return { zakazkaId, title, nazov, zakaznik, stavAktivna };
 }
 
-function asStavAktivna(v: unknown): boolean {
-  if (typeof v === "boolean") return v;
-  if (v === 1 || v === "1" || v === "true" || v === "Yes") return true;
-  if (v === 0 || v === "0" || v === "false" || v === "No") return false;
-  const s = asSharePointValue(v).toLowerCase();
-  if (s === "áno" || s === "ano" || s === "yes") return true;
-  if (s === "nie" || s === "no") return false;
-  return false;
+export function zakazkaSelectFields(cols: ZakazkaColumnMap): string[] {
+  const fields = [cols.title, cols.zakazkaId, cols.zakaznik, cols.stavAktivna];
+  if (cols.nazov) fields.push(cols.nazov);
+  return [...new Set(fields)];
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  AppState,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -18,18 +18,22 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthContext";
 import { BottomSheetModal } from "../components/BottomSheetModal";
 import { CalendarModal } from "../components/CalendarModal";
 import { MyEntriesSection } from "../components/MyEntriesSection";
 import { UkonPickerModal } from "../components/UkonPickerModal";
+import { WorkItemPickerModal } from "../components/WorkItemPickerModal";
 import { MINUTE_PRESETS } from "../constants/minutes";
 import { useCreateTimeEntry, useMyEntries } from "../hooks/useMyEntries";
 import { useUkony } from "../hooks/useUkony";
 import { useWorkCatalog } from "../hooks/useWorkItems";
+import { useKeyboardHeight } from "../hooks/useKeyboardHeight";
+import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, font, spacing } from "../theme";
 import type { UkonItem } from "../types/ukon";
-import type { WorkItem } from "../types/workItems";
 import {
   daysAgoDateOnly,
   formatDateShort,
@@ -40,15 +44,17 @@ import { parseMinutes, validateTimeEntry } from "../utils/validation";
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const scrollRef = useRef<ScrollView>(null);
   const noteFocusedRef = useRef(false);
-  const { user, signOut } = useAuth();
+  const keyboardHeight = useKeyboardHeight();
+  const { user } = useAuth();
   const workCatalogQuery = useWorkCatalog();
   const ukonyQuery = useUkony();
   const myEntriesQuery = useMyEntries();
   const createEntry = useCreateTimeEntry();
 
-  const [workSearch, setWorkSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [minutesRaw, setMinutesRaw] = useState("");
   const [dateOnly, setDateOnly] = useState(todayDateOnly());
@@ -73,21 +79,31 @@ export function HomeScreen() {
     return pickerItems.find((i) => i.key === selectedKey) ?? null;
   }, [selectedKey, pickerItems]);
 
-  const filteredWorkItems = useMemo(() => {
-    const q = workSearch.trim().toLowerCase();
-    if (!q) return pickerItems;
-    return pickerItems.filter((i) => i.searchText.includes(q));
-  }, [workSearch, pickerItems]);
-
   const validUkonNames = useMemo(
     () => ukonyQuery.data?.map((u) => u.nazov) ?? [],
     [ukonyQuery.data],
   );
 
+  // Po zobrazení klávesnice (a odsadení obsahu) posuň na poznámku.
   useEffect(() => {
-    const sub = Keyboard.addListener("keyboardDidShow", () => {
-      if (!noteFocusedRef.current) return;
-      scrollRef.current?.scrollToEnd({ animated: true });
+    if (keyboardHeight <= 0 || !noteFocusedRef.current) return;
+    const t = setTimeout(
+      () => scrollRef.current?.scrollToEnd({ animated: true }),
+      50,
+    );
+    return () => clearTimeout(t);
+  }, [keyboardHeight]);
+
+  // Pri návrate do appky v nový deň predvyber dnešný dátum.
+  const lastDayRef = useRef(todayDateOnly());
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      const t = todayDateOnly();
+      if (t !== lastDayRef.current) {
+        lastDayRef.current = t;
+        setDateOnly(t);
+      }
     });
     return () => sub.remove();
   }, []);
@@ -175,189 +191,217 @@ export function HomeScreen() {
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: bottomPad + keyboardHeight },
+          ]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-        <View style={styles.header}>
-          <View style={styles.hero}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.brand}>Golpretech</Text>
-              <Text style={styles.userName} numberOfLines={1}>
-                {user?.displayName}
-              </Text>
-              <Text style={styles.userEmail} numberOfLines={1}>
-                {user?.email}
-              </Text>
+          <View style={styles.header}>
+            <View style={styles.topBar}>
+              <Pressable
+                style={styles.backBtn}
+                onPress={() => navigation.navigate("Hub")}
+              >
+                <Text style={styles.backBtnText}>← Hub</Text>
+              </Pressable>
+              <Text style={styles.topBarTitle}>Odvod hodín</Text>
+              <View style={styles.backBtnPlaceholder} />
             </View>
-            <Pressable style={styles.logoutBtn} onPress={() => void signOut()}>
-              <Text style={styles.logoutText}>Odhlásiť</Text>
-            </Pressable>
-          </View>
 
-          <MyEntriesSection
-            entries={myEntriesQuery.data}
-            isLoading={myEntriesQuery.isLoading}
-            isError={myEntriesQuery.isError}
-            error={myEntriesQuery.error}
-          />
-
-          <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
-            Nový zápis
-          </Text>
-
-          {/* 1. Dátum */}
-          <Text style={styles.label}>1. Dátum</Text>
-          <View style={styles.dateRow}>
-            <DateChip
-              title="Dnes"
-              active={dateOnly === today}
-              onPress={() => setDateOnly(today)}
-            />
-            <DateChip
-              title={formatDateShort(yesterday)}
-              active={dateOnly === yesterday}
-              onPress={() => setDateOnly(yesterday)}
-            />
-            <DateChip
-              title={formatDateShort(dayBefore)}
-              active={dateOnly === dayBefore}
-              onPress={() => setDateOnly(dayBefore)}
-            />
-            <DateChip
-              title="Manuálne"
-              active={
-                dateOnly !== today &&
-                dateOnly !== yesterday &&
-                dateOnly !== dayBefore
-              }
-              onPress={() => setCalendarOpen(true)}
-              outline
-            />
-          </View>
-          <Text style={styles.dateValue}>{formatDateSk(dateOnly)}</Text>
-
-          {/* 2. Zákazka / objednávka */}
-          <Text style={styles.label}>2. Zákazka / objednávka</Text>
-          <Pressable
-            style={styles.selectBtn}
-            onPress={() => {
-              setWorkSearch("");
-              setWorkOpen(true);
-            }}
-          >
-            {selectedItem ? (
-              <View style={styles.selectedInline}>
-                <Text style={styles.selectedLabel}>{selectedItem.label}</Text>
-                {selectedItem.subtitle ? (
-                  <Text style={styles.selectedSub}>{selectedItem.subtitle}</Text>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={styles.selectPlaceholder}>
-                Vyberte zákazku alebo objednávku…
+            {user ? (
+              <Text style={styles.userHint} numberOfLines={1}>
+                {user.displayName}
               </Text>
-            )}
-          </Pressable>
+            ) : null}
 
-          {/* 3. Minúty */}
-          <Text style={styles.label}>3. Minúty (1–720)</Text>
-          <View style={styles.minutesRow}>
+            <MyEntriesSection
+              entries={myEntriesQuery.data}
+              isLoading={myEntriesQuery.isLoading}
+              isError={myEntriesQuery.isError}
+              error={myEntriesQuery.error}
+            />
+
+            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
+              Nový zápis
+            </Text>
+
+            <Text style={styles.label}>1. Dátum *</Text>
+            <View style={styles.dateRow}>
+              <DateChip
+                title="Dnes"
+                active={dateOnly === today}
+                onPress={() => setDateOnly(today)}
+              />
+              <DateChip
+                title={formatDateShort(yesterday)}
+                active={dateOnly === yesterday}
+                onPress={() => setDateOnly(yesterday)}
+              />
+              <DateChip
+                title={formatDateShort(dayBefore)}
+                active={dateOnly === dayBefore}
+                onPress={() => setDateOnly(dayBefore)}
+              />
+              <DateChip
+                title="Manuálne"
+                active={
+                  dateOnly !== today &&
+                  dateOnly !== yesterday &&
+                  dateOnly !== dayBefore
+                }
+                onPress={() => setCalendarOpen(true)}
+                outline
+              />
+            </View>
+            <Text style={styles.dateValue}>{formatDateSk(dateOnly)}</Text>
+
+            <Text style={styles.label}>2. Zákazka / objednávka *</Text>
             <Pressable
-              style={styles.minutesDropdown}
-              onPress={() => setMinutesOpen(true)}
+              style={styles.selectBtn}
+              onPress={() => setWorkOpen(true)}
+            >
+              {selectedItem ? (
+                <View style={styles.selectedInline}>
+                  <Text style={styles.selectedLabel}>{selectedItem.label}</Text>
+                  {selectedItem.subtitle ? (
+                    <Text style={styles.selectedSub}>
+                      {selectedItem.subtitle}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : (
+                <Text style={styles.selectPlaceholder}>
+                  Vyberte zákazku alebo objednávku…
+                </Text>
+              )}
+            </Pressable>
+            {workCatalogQuery.isError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.error} selectable>
+                  {workCatalogQuery.error instanceof Error
+                    ? workCatalogQuery.error.message
+                    : String(workCatalogQuery.error)}
+                </Text>
+                <Pressable
+                  style={styles.retryBtn}
+                  onPress={() => void workCatalogQuery.refetch()}
+                >
+                  <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            <Text style={styles.label}>3. Minúty (1–720) *</Text>
+            <View style={styles.minutesRow}>
+              <Pressable
+                style={styles.minutesDropdown}
+                onPress={() => setMinutesOpen(true)}
+              >
+                <Text
+                  style={
+                    minutesRaw ? styles.selectValue : styles.selectPlaceholder
+                  }
+                >
+                  {minutesRaw || "Vyberte…"}
+                </Text>
+              </Pressable>
+              <TextInput
+                style={styles.minutesManual}
+                value={minutesRaw}
+                onChangeText={setMinutesRaw}
+                keyboardType="number-pad"
+                placeholder="ručne"
+                placeholderTextColor={colors.muted}
+              />
+            </View>
+
+            <Text style={styles.label}>4. Úkon *</Text>
+            <Pressable
+              style={styles.selectBtn}
+              onPress={() => setUkonOpen(true)}
             >
               <Text
                 style={
-                  minutesRaw ? styles.selectValue : styles.selectPlaceholder
+                  selectedUkon ? styles.selectValue : styles.selectPlaceholder
                 }
               >
-                {minutesRaw || "Vyberte…"}
+                {selectedUkon?.nazov ?? "Vyberte úkon…"}
               </Text>
             </Pressable>
+            {ukonyQuery.isError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.error} selectable>
+                  {ukonyQuery.error instanceof Error
+                    ? ukonyQuery.error.message
+                    : String(ukonyQuery.error)}
+                </Text>
+                <Pressable
+                  style={styles.retryBtn}
+                  onPress={() => void ukonyQuery.refetch()}
+                >
+                  <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.reworkRow}>
+              <Text style={styles.labelInline}>Rework</Text>
+              <Switch
+                value={rework}
+                onValueChange={setRework}
+                trackColor={{ false: colors.border, true: colors.primaryMuted }}
+                thumbColor={rework ? colors.primary : "#f4f4f4"}
+              />
+            </View>
+
+            <Text style={styles.label}>Poznámka{rework ? " *" : ""}</Text>
             <TextInput
-              style={styles.minutesManual}
-              value={minutesRaw}
-              onChangeText={setMinutesRaw}
-              keyboardType="number-pad"
-              placeholder="ručne"
+              style={[styles.input, styles.noteInput]}
+              value={note}
+              onChangeText={setNote}
+              placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
               placeholderTextColor={colors.muted}
+              multiline
+              onFocus={() => {
+                noteFocusedRef.current = true;
+              }}
+              onBlur={() => {
+                noteFocusedRef.current = false;
+              }}
             />
-          </View>
 
-          {/* 4. Úkon */}
-          <Text style={styles.label}>4. Úkon</Text>
-          <Pressable
-            style={styles.selectBtn}
-            onPress={() => setUkonOpen(true)}
-          >
-            <Text
-              style={
-                selectedUkon ? styles.selectValue : styles.selectPlaceholder
-              }
+            {formError ? (
+              <Text style={styles.error} selectable>
+                {formError}
+              </Text>
+            ) : null}
+            {successMsg ? (
+              <Text style={styles.success}>{successMsg}</Text>
+            ) : null}
+
+            <Pressable
+              style={[
+                styles.submitBtn,
+                { marginBottom: insets.bottom + spacing.sm },
+                createEntry.isPending && styles.submitDisabled,
+              ]}
+              disabled={createEntry.isPending}
+              onPress={() => {
+                Keyboard.dismiss();
+                void onSubmit();
+              }}
             >
-              {selectedUkon?.nazov ?? "Vyberte úkon…"}
-            </Text>
-          </Pressable>
-
-          {/* 5. Rework */}
-          <View style={styles.reworkRow}>
-            <Text style={styles.labelInline}>Rework</Text>
-            <Switch
-              value={rework}
-              onValueChange={setRework}
-              trackColor={{ false: colors.border, true: colors.primaryMuted }}
-              thumbColor={rework ? colors.primary : "#f4f4f4"}
-            />
+              {createEntry.isPending ? (
+                <ActivityIndicator color={colors.primaryText} />
+              ) : (
+                <Text style={styles.submitText}>Uložiť zápis</Text>
+              )}
+            </Pressable>
           </View>
-
-          {/* 6. Poznámka */}
-          <Text style={styles.label}>
-            Poznámka{rework ? " *" : ""}
-          </Text>
-          <TextInput
-            style={[styles.input, styles.noteInput]}
-            value={note}
-            onChangeText={setNote}
-            placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
-            placeholderTextColor={colors.muted}
-            multiline
-            onFocus={() => {
-              noteFocusedRef.current = true;
-            }}
-            onBlur={() => {
-              noteFocusedRef.current = false;
-            }}
-          />
-
-          {formError ? (
-            <Text style={styles.error} selectable>
-              {formError}
-            </Text>
-          ) : null}
-          {successMsg ? <Text style={styles.success}>{successMsg}</Text> : null}
-
-          <Pressable
-            style={[
-              styles.submitBtn,
-              { marginBottom: insets.bottom + spacing.sm },
-              createEntry.isPending && styles.submitDisabled,
-            ]}
-            disabled={createEntry.isPending}
-            onPress={() => {
-              Keyboard.dismiss();
-              void onSubmit();
-            }}
-          >
-            {createEntry.isPending ? (
-              <ActivityIndicator color={colors.primaryText} />
-            ) : (
-              <Text style={styles.submitText}>Uložiť zápis</Text>
-            )}
-          </Pressable>
-        </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -368,64 +412,16 @@ export function HomeScreen() {
         onClose={() => setCalendarOpen(false)}
       />
 
-      <BottomSheetModal
+      <WorkItemPickerModal
         visible={workOpen}
-        title="Zákazka / objednávka"
+        selectedKey={selectedKey}
+        onSelect={(item) => {
+          setSelectedKey(item.key);
+          setSuccessMsg(null);
+          setFormError(null);
+        }}
         onClose={() => setWorkOpen(false)}
-        tall
-        dismissOnBackdrop={false}
-      >
-        <TextInput
-          style={styles.input}
-          value={workSearch}
-          onChangeText={setWorkSearch}
-          placeholder="Hľadať kód, názov, zákazníka…"
-          placeholderTextColor={colors.muted}
-          autoCorrect={false}
-          autoCapitalize="none"
-          autoFocus
-        />
-        {workCatalogQuery.isLoading ? (
-          <ActivityIndicator
-            style={{ marginVertical: spacing.md }}
-            color={colors.primary}
-          />
-        ) : workCatalogQuery.isError ? (
-          <Text style={styles.error}>
-            {workCatalogQuery.error instanceof Error
-              ? workCatalogQuery.error.message
-              : "Nepodarilo sa načítať zoznam."}
-          </Text>
-        ) : (
-          <FlatList
-            data={filteredWorkItems}
-            keyExtractor={(item) => item.key}
-            keyboardShouldPersistTaps="handled"
-            style={styles.modalList}
-            ListEmptyComponent={
-              <Text style={styles.muted}>Nič nenájdené.</Text>
-            }
-            renderItem={({ item }) => (
-              <WorkItemOption
-                item={item}
-                selected={item.key === selectedKey}
-                onPress={() => {
-                  setSelectedKey(item.key);
-                  setWorkOpen(false);
-                  setSuccessMsg(null);
-                  setFormError(null);
-                }}
-              />
-            )}
-          />
-        )}
-        <Pressable
-          style={styles.modalCloseBtn}
-          onPress={() => setWorkOpen(false)}
-        >
-          <Text style={styles.modalCloseText}>Zavrieť</Text>
-        </Pressable>
-      </BottomSheetModal>
+      />
 
       <BottomSheetModal
         visible={minutesOpen}
@@ -465,6 +461,7 @@ export function HomeScreen() {
         error={ukonyQuery.error}
         selectedNazov={selectedUkon?.nazov ?? null}
         onSelect={setSelectedUkon}
+        onRetry={() => void ukonyQuery.refetch()}
       />
     </SafeAreaView>
   );
@@ -510,28 +507,6 @@ function DateChip({
   );
 }
 
-function WorkItemOption({
-  item,
-  selected,
-  onPress,
-}: {
-  item: WorkItem;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.workOption, selected && styles.workOptionSelected]}
-    >
-      <Text style={styles.workOptionLabel}>{item.label}</Text>
-      {item.subtitle ? (
-        <Text style={styles.workOptionSub}>{item.subtitle}</Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
@@ -541,41 +516,38 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: spacing.sm,
   },
-  hero: {
+  topBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.sm,
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
   },
-  brand: {
-    fontSize: font.xs,
+  backBtn: {
+    minWidth: 72,
+    paddingVertical: spacing.xs,
+  },
+  backBtnPlaceholder: { minWidth: 72 },
+  backBtnText: {
+    fontSize: font.md,
     fontWeight: "700",
     color: colors.primary,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
   },
-  userName: { fontSize: font.xl, fontWeight: "800", color: colors.text },
-  userEmail: { fontSize: font.sm, color: colors.primaryMuted },
-  logoutBtn: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
+  topBarTitle: {
+    fontSize: font.lg,
+    fontWeight: "800",
+    color: colors.text,
   },
-  logoutText: { fontSize: font.sm, fontWeight: "700", color: colors.primary },
+  userHint: {
+    fontSize: font.sm,
+    color: colors.muted,
+    marginBottom: spacing.xs,
+  },
   sectionTitle: {
     fontSize: font.lg,
     fontWeight: "800",
     color: colors.text,
     marginTop: spacing.sm,
   },
-  sectionHint: { fontSize: font.sm, color: colors.muted, marginTop: -4 },
   label: {
     fontSize: font.md,
     fontWeight: "700",
@@ -587,8 +559,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.text,
   },
-  muted: { fontSize: font.sm, color: colors.muted, lineHeight: 18 },
   error: { fontSize: font.sm, color: colors.danger, lineHeight: 18 },
+  errorBox: { gap: spacing.sm },
+  retryBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  retryBtnText: {
+    fontSize: font.sm,
+    fontWeight: "700",
+    color: colors.primary,
+  },
   success: {
     fontSize: font.md,
     color: colors.success,
@@ -727,8 +713,6 @@ const styles = StyleSheet.create({
     fontSize: font.lg,
     fontWeight: "800",
   },
-  modalList: { flex: 1 },
-  ukonList: { maxHeight: 320 },
   modalOption: {
     minHeight: 44,
     borderRadius: 10,
@@ -739,38 +723,4 @@ const styles = StyleSheet.create({
   modalOptionActive: { backgroundColor: colors.primarySoft },
   modalOptionText: { fontSize: font.lg, color: colors.text, fontWeight: "600" },
   modalOptionTextActive: { color: colors.primary },
-  modalCloseBtn: {
-    marginTop: spacing.sm,
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalCloseText: {
-    fontSize: font.md,
-    fontWeight: "700",
-    color: colors.primary,
-  },
-  workOption: {
-    marginTop: spacing.xs,
-    padding: spacing.md,
-    borderRadius: 10,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 2,
-  },
-  workOptionSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  workOptionLabel: {
-    fontSize: font.md,
-    lineHeight: 20,
-    color: colors.text,
-    fontWeight: "700",
-  },
-  workOptionSub: { fontSize: font.sm, color: colors.muted },
 });

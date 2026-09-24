@@ -22,6 +22,8 @@ type Props = {
   onClose: () => void;
   /** Najstarší povolený dátum (default: posledný týždeň pre nový zápis) */
   minDate?: string;
+  /** Najneskorší povolený dátum (default: dnes) */
+  maxDate?: string;
 };
 
 const WEEKDAYS = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
@@ -45,10 +47,11 @@ export function CalendarModal({
   onSelect,
   onClose,
   minDate: minDateProp,
+  maxDate: maxDateProp,
 }: Props) {
   const insets = useSafeAreaInsets();
   const minDate = minDateProp ?? minEntryDateOnly();
-  const maxDate = todayDateOnly();
+  const maxDate = maxDateProp ?? todayDateOnly();
 
   const [viewMonth, setViewMonth] = useState(() =>
     monthStart(parseDateOnly(selected || todayDateOnly())),

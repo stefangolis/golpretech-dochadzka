@@ -1,5 +1,9 @@
 import { env } from "../config/env";
-import { graphFetch, parseGraphErrorBody } from "./sharepointClient";
+import {
+  graphFetch,
+  parseGraphErrorBody,
+  fetchListDisplayName,
+} from "./sharepointClient";
 
 export type TimeEntryLogicalField =
   | "zamestnanecEmail"
@@ -193,18 +197,6 @@ export function parseStoredRework(value: unknown): boolean {
   return true;
 }
 
-async function fetchListDisplayName(
-  accessToken: string,
-  listId: string,
-): Promise<string> {
-  const siteId = env.sharePointSiteId;
-  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}?$select=displayName`;
-  const res = await graphFetch(accessToken, url);
-  if (!res.ok) return listId;
-  const data = (await res.json()) as { displayName?: string };
-  return data.displayName?.trim() || listId;
-}
-
 async function fetchRawListColumns(
   accessToken: string,
   listId: string,
@@ -366,7 +358,12 @@ export async function validateCreatePayload(
 ): Promise<void> {
   const columns = await fetchRawListColumns(accessToken, listId);
   const names = new Set(columns.map((c) => c.name));
-  const listTitle = await fetchListDisplayName(accessToken, listId);
+  let listTitle = listId;
+  try {
+    listTitle = await fetchListDisplayName(accessToken, listId);
+  } catch {
+    /* fallback na listId */
+  }
   const unknown = Object.keys(fields).filter(
     (key) => key !== "Title" && !names.has(key),
   );

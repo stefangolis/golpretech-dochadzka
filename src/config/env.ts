@@ -8,6 +8,8 @@ type Extra = {
   sharePointListObjednavkyId?: string;
   sharePointListZaznamyId?: string;
   sharePointListUkonyId?: string;
+  sharePointListVozidlaId?: string;
+  sharePointListRezervacieId?: string;
 };
 
 function extra(): Extra {
@@ -35,6 +37,12 @@ export const env = {
   },
   get sharePointListUkonyId() {
     return extra().sharePointListUkonyId?.trim() ?? "";
+  },
+  get sharePointListVozidlaId() {
+    return extra().sharePointListVozidlaId?.trim() ?? "";
+  },
+  get sharePointListRezervacieId() {
+    return extra().sharePointListRezervacieId?.trim() ?? "";
   },
 };
 

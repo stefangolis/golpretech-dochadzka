@@ -1,6 +1,7 @@
 # Nahraje premenne z .env do EAS Environment (preview + production).
 # Pred spustenim: eas login
 # Pouzitie: .\scripts\push-eas-env.ps1
+# Pushne cely .env vcetne SHAREPOINT_LIST_VOZIDLA_ID a SHAREPOINT_LIST_REZERVACIE_ID.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

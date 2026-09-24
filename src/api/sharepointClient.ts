@@ -71,6 +71,23 @@ export async function graphFetch(
   return res;
 }
 
+/** displayName SharePoint zoznamu (na overenie ID v .env) */
+export async function fetchListDisplayName(
+  accessToken: string,
+  listId: string,
+): Promise<string> {
+  assertSharePointConfig();
+  const siteId = env.sharePointSiteId;
+  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}?$select=displayName`;
+  const res = await graphFetch(accessToken, url);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(formatSharePointHttpError(res.status, listId, body));
+  }
+  const data = (await res.json()) as { displayName?: string };
+  return data.displayName?.trim() || listId;
+}
+
 /**
  * Načíta všetky položky zoznamu (s pagináciou). Filter je OData na fields/.
  */
@@ -80,6 +97,7 @@ export async function listAllSharePointItems(
   options?: {
     filter?: string;
     selectFields?: string[];
+    debugLabel?: string;
   },
 ): Promise<Array<{ id: string; fields: Record<string, unknown> }>> {
   assertSharePointConfig();
@@ -99,10 +117,18 @@ export async function listAllSharePointItems(
   while (url) {
     const res = await graphFetch(accessToken, url, {
       headers: {
-        // Umožní filter aj na neindexovaných stĺpcoch (malé zoznamy OK)
         Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
       },
     });
+    // TODO odstrániť po odladení
+    if (options?.debugLabel) {
+      console.log(
+        `[${options.debugLabel}]`,
+        url,
+        `HTTP ${res.status}`,
+        `totalSoFar=${items.length}`,
+      );
+    }
     if (!res.ok) {
       const body = await res.text();
       throw new Error(formatSharePointHttpError(res.status, listId, body));
@@ -115,6 +141,11 @@ export async function listAllSharePointItems(
     url = page["@odata.nextLink"] ?? "";
   }
 
+  // TODO odstrániť po odladení
+  if (options?.debugLabel) {
+    console.log(`[${options.debugLabel}] done items=${items.length}`);
+  }
+
   return items;
 }
 
@@ -122,7 +153,7 @@ export async function createSharePointItem(
   accessToken: string,
   listId: string,
   fields: Record<string, unknown>,
-): Promise<void> {
+): Promise<string> {
   assertSharePointConfig();
   const siteId = env.sharePointSiteId;
   const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`;
@@ -135,6 +166,8 @@ export async function createSharePointItem(
     const body = await res.text();
     throw new Error(formatSharePointHttpError(res.status, listId, body));
   }
+  const data = (await res.json()) as { id?: string };
+  return data.id ?? "";
 }
 
 export async function updateSharePointItemFields(

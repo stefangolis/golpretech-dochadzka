@@ -70,6 +70,8 @@ Pre **preview** aj **production** nastavte:
 | `SHAREPOINT_LIST_OBJEDNAVKY_ID` | … |
 | `SHAREPOINT_LIST_ZAZNAMY_ID` | … |
 | `SHAREPOINT_LIST_UKONY_ID` | zoznam úkonov s minútovou sadzbou |
+| `SHAREPOINT_LIST_VOZIDLA_ID` | zoznam služobných vozidiel (displayName: Vozidla) |
+| `SHAREPOINT_LIST_REZERVACIE_ID` | zoznam rezervácií vozidiel (displayName: Rezervacie) |
 
 ---
 
