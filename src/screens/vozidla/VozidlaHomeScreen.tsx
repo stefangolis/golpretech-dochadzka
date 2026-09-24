@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -37,12 +37,15 @@ import {
 import {
   dostupnostVozidla,
   formatRezervaciaObdobie,
+  jeAktivnaRezervacia,
+  jeNeodovzdanaPoTermine,
   menoZRezervacie,
   najdiKolizie,
   obsadeneDniVozidla,
   REZERVACIA_MAX_DAYS,
   REZERVACIA_MAX_DAYS_AHEAD,
 } from "../../utils/rezervacie";
+import { synchronizovatNotifikacieRezervacii } from "../../utils/rezervacieNotifikacie";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
 type Nav = NativeStackNavigationProp<RootStackParamList & VozidlaStackParamList>;
@@ -112,8 +115,15 @@ export function VozidlaHomeScreen() {
     rezervacieQuery.isRefetching ||
     mojeQuery.isRefetching;
 
-  const canManage = (r: Rezervacia) =>
-    r.stav === "Rezervovane" || r.stav === "Prevzate";
+  const mojeAktivne = useMemo(
+    () => (mojeQuery.data ?? []).filter(jeAktivnaRezervacia),
+    [mojeQuery.data],
+  );
+
+  useEffect(() => {
+    if (!mojeQuery.data) return;
+    void synchronizovatNotifikacieRezervacii(mojeQuery.data);
+  }, [mojeQuery.data]);
 
   const onZrusit = (r: Rezervacia) => {
     Alert.alert(
@@ -181,20 +191,6 @@ export function VozidlaHomeScreen() {
     }
   };
 
-  const onOdovzdatSkor = (r: Rezervacia) => {
-    Alert.alert(
-      "Ukončiť rezerváciu dnes?",
-      "Vozidlo sa uvoľní pre ostatných od zajtra.",
-      [
-        { text: "Nie", style: "cancel" },
-        {
-          text: "Ukončiť dnes",
-          onPress: () => void ulozitKoniec(r, today),
-        },
-      ],
-    );
-  };
-
   const actionPending = zrusit.isPending || zmenitKoniec.isPending;
 
   const loadError =
@@ -235,26 +231,37 @@ export function VozidlaHomeScreen() {
         <Text style={styles.sectionTitle}>Moje rezervácie</Text>
         {mojeQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} />
-        ) : (mojeQuery.data ?? []).length === 0 ? (
+        ) : mojeAktivne.length === 0 ? (
           <Text style={styles.muted}>Žiadna aktívna rezervácia.</Text>
         ) : (
-          (mojeQuery.data ?? []).map((r) => (
-            <View key={r.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{nazovVozidla(r.vozidloSpz)}</Text>
-              <Text style={styles.cardSub}>
-                {formatRezervaciaObdobie(r.od, r.do)}
-                {r.stav === "Prevzate" ? " · Prevzaté" : ""}
-              </Text>
-              {r.zakazkaId ? (
-                <Text style={styles.cardMeta}>Zákazka: {r.zakazkaId}</Text>
-              ) : null}
-              {r.cielCesty ? (
-                <Text style={styles.cardMeta}>Cieľ: {r.cielCesty}</Text>
-              ) : null}
+          mojeAktivne.map((r) => {
+            const nezacala = r.stav === "Rezervovane" && r.od > today;
+            const naPrevzatie = r.stav === "Rezervovane" && r.od <= today;
+            const prevzata = r.stav === "Prevzate";
+            return (
+              <View key={r.id} style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {nazovVozidla(r.vozidloSpz)}
+                </Text>
+                <Text style={styles.cardSub}>
+                  {formatRezervaciaObdobie(r.od, r.do)}
+                  {prevzata ? " · Prevzaté" : ""}
+                </Text>
+                {jeNeodovzdanaPoTermine(r, today) ? (
+                  <Text style={styles.overdue}>
+                    Neodovzdané po termíne — odovzdajte vozidlo alebo predĺžte
+                    rezerváciu.
+                  </Text>
+                ) : null}
+                {r.zakazkaId ? (
+                  <Text style={styles.cardMeta}>Zákazka: {r.zakazkaId}</Text>
+                ) : null}
+                {r.cielCesty ? (
+                  <Text style={styles.cardMeta}>Cieľ: {r.cielCesty}</Text>
+                ) : null}
 
-              {canManage(r) ? (
                 <View style={styles.actions}>
-                  {r.od > today ? (
+                  {nezacala ? (
                     <>
                       <Pressable
                         style={styles.actionBtn}
@@ -279,37 +286,50 @@ export function VozidlaHomeScreen() {
                         </Text>
                       </Pressable>
                     </>
-                  ) : r.do >= today ? (
-                    <>
-                      <Pressable
-                        style={styles.actionBtn}
-                        onPress={() => setEndTarget(r)}
-                        disabled={actionPending}
-                      >
-                        <Text style={styles.actionBtnText}>Zmeniť koniec</Text>
-                      </Pressable>
-                      {r.do !== today ? (
-                        <Pressable
-                          style={styles.actionBtn}
-                          onPress={() => onOdovzdatSkor(r)}
-                          disabled={actionPending}
-                        >
-                          <Text style={styles.actionBtnText}>Odovzdať skôr</Text>
-                        </Pressable>
-                      ) : null}
-                    </>
                   ) : null}
-                  {r.stav === "Prevzate" ? (
-                    <Pressable style={[styles.actionBtn, styles.actionDisabled]} disabled>
-                      <Text style={styles.actionDisabledText}>
-                        Odovzdať · Pripravujeme
+                  {naPrevzatie ? (
+                    <Pressable
+                      style={[styles.actionBtn, styles.actionPrimary]}
+                      onPress={() =>
+                        navigation.navigate("Prevzatie", { rezervacia: r })
+                      }
+                      disabled={actionPending}
+                    >
+                      <Text
+                        style={[styles.actionBtnText, styles.actionPrimaryText]}
+                      >
+                        Prevziať
                       </Text>
                     </Pressable>
                   ) : null}
+                  {prevzata ? (
+                    <Pressable
+                      style={[styles.actionBtn, styles.actionPrimary]}
+                      onPress={() =>
+                        navigation.navigate("Odovzdanie", { rezervacia: r })
+                      }
+                      disabled={actionPending}
+                    >
+                      <Text
+                        style={[styles.actionBtnText, styles.actionPrimaryText]}
+                      >
+                        Odovzdať
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {naPrevzatie || prevzata ? (
+                    <Pressable
+                      style={styles.actionBtn}
+                      onPress={() => setEndTarget(r)}
+                      disabled={actionPending}
+                    >
+                      <Text style={styles.actionBtnText}>Zmeniť koniec</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-              ) : null}
-            </View>
-          ))
+              </View>
+            );
+          })
         )}
 
         <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
@@ -353,7 +373,11 @@ export function VozidlaHomeScreen() {
                 {info.useky.map((u) => (
                   <Text key={u.rezervaciaId} style={styles.usekLine}>
                     {formatDateShort(u.od)}–{formatDateShort(u.do)} · {u.meno}
-                    {u.stav === "Prevzate" ? " (prevzaté)" : ""}
+                    {u.poTermine
+                      ? " (neodovzdané)"
+                      : u.stav === "Prevzate"
+                        ? " (prevzaté)"
+                        : ""}
                   </Text>
                 ))}
               </View>
@@ -484,16 +508,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FCEBEA",
   },
   actionDangerText: { color: colors.danger },
-  actionDisabled: {
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    opacity: 0.85,
-  },
-  actionDisabledText: {
-    fontSize: font.sm,
-    fontWeight: "600",
-    color: colors.muted,
-  },
+  actionPrimary: { backgroundColor: colors.primary },
+  actionPrimaryText: { color: colors.primaryText },
+  overdue: { fontSize: font.sm, fontWeight: "700", color: colors.danger },
   primaryBtn: {
     marginTop: spacing.lg,
     minHeight: 48,

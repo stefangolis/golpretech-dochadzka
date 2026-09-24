@@ -2,13 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createRezervacia,
   fetchMojeRezervacie,
+  fetchPoslednyOdovzdanyKm,
   fetchRezervacieVRozsahu,
+  odovzdatRezervaciu,
+  overitOdovzdanie,
+  overitPrevzatie,
+  prevziatRezervaciu,
   upravitRezervaciu,
   zmenitKoniecRezervacie,
   zrusitRezervaciu,
+  type OdovzdanieInput,
+  type PrevzatieInput,
 } from "../api/rezervacieData";
+import { buildRezervaciaTitle } from "../api/rezervacieFields";
+import { nahratFotkyRezervacie } from "../api/vozidlaFotky";
 import { fetchVozidla } from "../api/vozidlaFields";
 import { useAuth } from "../auth/AuthContext";
+import { todayDateOnly } from "../utils/dates";
+import {
+  naplanovatNotifikaciuRezervacie,
+  zrusitNotifikaciuRezervacie,
+} from "../utils/rezervacieNotifikacie";
 
 export function useVozidla() {
   const { getValidAccessToken, user } = useAuth();
@@ -53,6 +67,21 @@ export function useMojeRezervacie() {
   });
 }
 
+/** OdovzdanieKm poslednej vrátenej rezervácie vozidla. */
+export function usePoslednyOdovzdanyKm(vozidloSpz: string) {
+  const { getValidAccessToken, user } = useAuth();
+
+  return useQuery({
+    queryKey: ["poslednyKm", vozidloSpz.trim().toLowerCase()],
+    enabled: !!user && !!vozidloSpz.trim(),
+    staleTime: 0,
+    queryFn: async () => {
+      const token = await getValidAccessToken();
+      return fetchPoslednyOdovzdanyKm(token, vozidloSpz);
+    },
+  });
+}
+
 async function invalidateRezervacieQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   email: string | undefined,
@@ -84,7 +113,8 @@ export function useCreateRezervacia() {
         displayName: user.displayName || user.email,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (createdId, input) => {
+      void naplanovatNotifikaciuRezervacie(createdId, input.do);
       await invalidateRezervacieQueries(queryClient, user?.email);
     },
   });
@@ -99,7 +129,8 @@ export function useZrusitRezervaciu() {
       const token = await getValidAccessToken();
       await zrusitRezervaciu(token, id);
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, id) => {
+      void zrusitNotifikaciuRezervacie(id);
       await invalidateRezervacieQueries(queryClient, user?.email);
     },
   });
@@ -126,7 +157,8 @@ export function useUpravitRezervaciu() {
         displayName: user.displayName || user.email,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, input) => {
+      void naplanovatNotifikaciuRezervacie(input.id, input.do);
       await invalidateRezervacieQueries(queryClient, user?.email);
     },
   });
@@ -152,8 +184,96 @@ export function useZmenitKoniecRezervacie() {
         displayName: user.displayName || user.email,
       });
     },
+    onSuccess: async (_data, input) => {
+      void naplanovatNotifikaciuRezervacie(input.id, input.noveDo);
+      await invalidateRezervacieQueries(queryClient, user?.email);
+    },
+  });
+}
+
+type FotkyProgress = (done: number, total: number) => void;
+
+/** Poradie: overenie volieb → nahratie fotiek → zápis stavu. */
+export function usePrevziatRezervaciu() {
+  const { getValidAccessToken, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      data: PrevzatieInput;
+      fotky: readonly string[];
+      onProgress?: FotkyProgress;
+    }) => {
+      if (!user) throw new Error("Nie ste prihlásený.");
+      const token = await getValidAccessToken();
+      await overitPrevzatie(token, input.data);
+      await nahratFotkyRezervacie(
+        token,
+        input.id,
+        "prevzatie",
+        input.fotky,
+        input.onProgress,
+      );
+      await prevziatRezervaciu(token, input.id, input.data);
+    },
     onSuccess: async () => {
       await invalidateRezervacieQueries(queryClient, user?.email);
+    },
+  });
+}
+
+export function useOdovzdatRezervaciu() {
+  const { getValidAccessToken, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      od: string;
+      do: string;
+      vozidloSpz: string;
+      nazovVozidla: string;
+      data: Omit<OdovzdanieInput, "skrateneDo">;
+      fotky: readonly string[];
+      onProgress?: FotkyProgress;
+    }) => {
+      if (!user) throw new Error("Nie ste prihlásený.");
+      const token = await getValidAccessToken();
+      await overitOdovzdanie(token, input.data);
+      await nahratFotkyRezervacie(
+        token,
+        input.id,
+        "odovzdanie",
+        input.fotky,
+        input.onProgress,
+      );
+      const dnes = todayDateOnly();
+      const skrateneDo =
+        dnes < input.do
+          ? {
+              noveDo: dnes,
+              title: buildRezervaciaTitle(
+                input.nazovVozidla,
+                input.od,
+                dnes,
+                user.displayName || user.email,
+              ),
+            }
+          : undefined;
+      await odovzdatRezervaciu(token, input.id, {
+        ...input.data,
+        skrateneDo,
+      });
+    },
+    onSuccess: async (_data, input) => {
+      void zrusitNotifikaciuRezervacie(input.id);
+      await Promise.all([
+        invalidateRezervacieQueries(queryClient, user?.email),
+        queryClient.invalidateQueries({
+          queryKey: ["poslednyKm", input.vozidloSpz.trim().toLowerCase()],
+        }),
+      ]);
     },
   });
 }

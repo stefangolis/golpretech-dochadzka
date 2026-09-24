@@ -13,7 +13,7 @@ function env(name) {
 module.exports = {
   name: "Golpretech Dochádzka",
   slug: "golpretech-dochadzka",
-  version: "1.1.0",
+  version: "1.2.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
@@ -39,13 +39,32 @@ module.exports = {
       monochromeImage: "./assets/android-icon-monochrome.png",
     },
     package: "com.golpretech.dochadzka",
-    versionCode: 2,
+    versionCode: 3,
     predictiveBackGestureEnabled: false,
   },
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-secure-store", "expo-web-browser"],
+  plugins: [
+    "expo-secure-store",
+    "expo-web-browser",
+    [
+      "expo-image-picker",
+      {
+        cameraPermission:
+          "Aplikácia potrebuje fotoaparát na fotografovanie stavu vozidla.",
+        photosPermission:
+          "Aplikácia potrebuje prístup k fotkám na priloženie fotografií stavu vozidla.",
+        microphonePermission: false,
+      },
+    ],
+    [
+      "expo-notifications",
+      {
+        color: "#0B3D2E",
+      },
+    ],
+  ],
   extra: {
     entraTenantId: env("ENTRA_TENANT_ID"),
     entraClientId: env("ENTRA_CLIENT_ID"),

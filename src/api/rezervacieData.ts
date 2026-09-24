@@ -11,6 +11,8 @@ import {
   listAllSharePointItems,
   updateSharePointItemFields,
 } from "./sharepointClient";
+import { jeAktivnaRezervacia } from "../utils/rezervacie";
+import { fetchListColumnChoices, type ListColumnChoiceInfo } from "./listColumns";
 import {
   buildRezervaciaCreateFields,
   buildRezervaciaTitle,
@@ -18,6 +20,7 @@ import {
   parseRezervaciaRow,
   rezervaciaSelectFields,
   type Rezervacia,
+  type RezervaciaColumnMap,
 } from "./rezervacieFields";
 
 let listsVerified = false;
@@ -60,6 +63,44 @@ export async function verifyVozidlaListIds(
   listsVerified = true;
 }
 
+function parseRows(
+  rows: Array<{ id: string; fields: Record<string, unknown> }>,
+  cols: RezervaciaColumnMap,
+): Rezervacia[] {
+  const items: Rezervacia[] = [];
+  for (const row of rows) {
+    const parsed = parseRezervaciaRow(row.id, row.fields, cols);
+    if (!parsed || !jeAktivnaRezervacia(parsed)) continue;
+    items.push(parsed);
+  }
+  return items;
+}
+
+function mergeById(...groups: Rezervacia[][]): Rezervacia[] {
+  const map = new Map<string, Rezervacia>();
+  for (const group of groups) {
+    for (const r of group) map.set(r.id, r);
+  }
+  return [...map.values()];
+}
+
+/** Prevzaté rezervácie bez ohľadu na Do (neodovzdané po termíne blokujú vozidlo). */
+async function fetchPrevzateRows(
+  accessToken: string,
+  cols: RezervaciaColumnMap,
+  extraFilter?: string,
+): Promise<Rezervacia[]> {
+  const filter = [`fields/${cols.stav} eq 'Prevzate'`, extraFilter]
+    .filter(Boolean)
+    .join(" and ");
+  const rows = await listAllSharePointItems(
+    accessToken,
+    env.sharePointListRezervacieId,
+    { filter, selectFields: rezervaciaSelectFields(cols) },
+  );
+  return parseRows(rows, cols);
+}
+
 export async function fetchRezervacieVRozsahu(
   accessToken: string,
   odDate: string,
@@ -70,22 +111,23 @@ export async function fetchRezervacieVRozsahu(
 
   const filter = [
     `fields/${cols.stav} ne 'Zrusene'`,
+    `fields/${cols.stav} ne 'Vratene'`,
     `fields/${cols.do} ge '${odDate}T00:00:00Z'`,
     `fields/${cols.od} le '${doDate}T23:59:59Z'`,
   ].join(" and ");
 
-  const rows = await listAllSharePointItems(
-    accessToken,
-    env.sharePointListRezervacieId,
-    { filter, selectFields: rezervaciaSelectFields(cols) },
-  );
+  const [rows, prevzate] = await Promise.all([
+    listAllSharePointItems(accessToken, env.sharePointListRezervacieId, {
+      filter,
+      selectFields: rezervaciaSelectFields(cols),
+    }),
+    fetchPrevzateRows(accessToken, cols),
+  ]);
 
-  const items: Rezervacia[] = [];
-  for (const row of rows) {
-    const parsed = parseRezervaciaRow(row.id, row.fields, cols);
-    if (!parsed || parsed.stav === "Zrusene") continue;
-    items.push(parsed);
-  }
+  const items = mergeById(
+    parseRows(rows, cols),
+    prevzate.filter((r) => r.od <= doDate),
+  );
 
   items.sort((a, b) => {
     if (a.od !== b.od) return a.od.localeCompare(b.od);
@@ -104,25 +146,25 @@ export async function fetchMojeRezervacie(
   const emailEscaped = escapeODataString(employeeEmail.trim());
   const emailNorm = employeeEmail.trim().toLowerCase();
 
+  const emailFilter = `fields/${cols.zamestnanecEmail} eq '${emailEscaped}'`;
   const filter = [
-    `fields/${cols.zamestnanecEmail} eq '${emailEscaped}'`,
+    emailFilter,
     `fields/${cols.stav} ne 'Zrusene'`,
+    `fields/${cols.stav} ne 'Vratene'`,
     `fields/${cols.do} ge '${from}T00:00:00Z'`,
   ].join(" and ");
 
-  const rows = await listAllSharePointItems(
-    accessToken,
-    env.sharePointListRezervacieId,
-    { filter, selectFields: rezervaciaSelectFields(cols) },
-  );
+  const [rows, prevzate] = await Promise.all([
+    listAllSharePointItems(accessToken, env.sharePointListRezervacieId, {
+      filter,
+      selectFields: rezervaciaSelectFields(cols),
+    }),
+    fetchPrevzateRows(accessToken, cols, emailFilter),
+  ]);
 
-  const items: Rezervacia[] = [];
-  for (const row of rows) {
-    const parsed = parseRezervaciaRow(row.id, row.fields, cols);
-    if (!parsed || parsed.stav === "Zrusene") continue;
-    if (parsed.zamestnanecEmail.trim().toLowerCase() !== emailNorm) continue;
-    items.push(parsed);
-  }
+  const items = mergeById(parseRows(rows, cols), prevzate).filter(
+    (r) => r.zamestnanecEmail.trim().toLowerCase() === emailNorm,
+  );
 
   items.sort((a, b) => {
     if (a.od !== b.od) return a.od.localeCompare(b.od);
@@ -248,6 +290,179 @@ export async function zmenitKoniecRezervacie(
       [cols.title]: title,
     },
   );
+}
+
+let choicesCache: Map<string, ListColumnChoiceInfo> | null = null;
+
+function requireCol(column: string | null, label: string): string {
+  if (!column) {
+    throw new Error(`V zozname Rezervacie chýba stĺpec ${label}.`);
+  }
+  return column;
+}
+
+/**
+ * Ak je stĺpec typu Voľba, overí, že zapisovaná hodnota je medzi povolenými.
+ * Volá sa pred nahrávaním fotiek, aby sa nič nenahralo zbytočne.
+ */
+async function overitHodnotyVolieb(
+  accessToken: string,
+  values: Array<{ column: string; value: string }>,
+): Promise<void> {
+  if (!choicesCache) {
+    choicesCache = await fetchListColumnChoices(
+      accessToken,
+      env.sharePointSiteId,
+      env.sharePointListRezervacieId,
+    );
+  }
+  for (const { column, value } of values) {
+    const info = choicesCache.get(column);
+    if (!info?.choices) continue;
+    if (info.choices.includes(value)) continue;
+    throw new Error(
+      `Stĺpec „${info.displayName}“ (${column}) v zozname Rezervacie nepovoľuje hodnotu „${value}“. ` +
+        `Povolené hodnoty: ${info.choices.join(", ") || "—"}.`,
+    );
+  }
+}
+
+export type PrevzatieInput = {
+  km: number;
+  prevzatieStav: string;
+  vyhrada: string;
+};
+
+export async function overitPrevzatie(
+  accessToken: string,
+  input: Pick<PrevzatieInput, "prevzatieStav">,
+): Promise<void> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  requireCol(cols.prevzatieCas, "PrevzatieCas");
+  requireCol(cols.prevzatieKm, "PrevzatieKm");
+  requireCol(cols.prevzatieVyhrada, "PrevzatieVyhrada");
+  await overitHodnotyVolieb(accessToken, [
+    { column: cols.stav, value: "Prevzate" },
+    {
+      column: requireCol(cols.prevzatieStav, "PrevzatieStav"),
+      value: input.prevzatieStav,
+    },
+  ]);
+}
+
+export async function prevziatRezervaciu(
+  accessToken: string,
+  itemId: string,
+  input: PrevzatieInput,
+): Promise<void> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  await updateSharePointItemFields(
+    accessToken,
+    env.sharePointListRezervacieId,
+    itemId,
+    {
+      [requireCol(cols.prevzatieCas, "PrevzatieCas")]: new Date().toISOString(),
+      [requireCol(cols.prevzatieKm, "PrevzatieKm")]: input.km,
+      [requireCol(cols.prevzatieStav, "PrevzatieStav")]: input.prevzatieStav,
+      [requireCol(cols.prevzatieVyhrada, "PrevzatieVyhrada")]:
+        input.vyhrada.trim(),
+      [cols.stav]: "Prevzate",
+    },
+  );
+}
+
+export type OdovzdanieInput = {
+  km: number;
+  odovzdanieStav: string;
+  poskodenie: string;
+  najazdeneKm: number | null;
+  /** Skoršie odovzdanie: nové Do (dnes) + prepočítaný Title. */
+  skrateneDo?: { noveDo: string; title: string };
+};
+
+export async function overitOdovzdanie(
+  accessToken: string,
+  input: Pick<OdovzdanieInput, "odovzdanieStav">,
+): Promise<void> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  requireCol(cols.odovzdanieCas, "OdovzdanieCas");
+  requireCol(cols.odovzdanieKm, "OdovzdanieKm");
+  requireCol(cols.odovzdaniePoskodenie, "OdovzdaniePoskodenie");
+  requireCol(cols.najazdeneKm, "NajazdeneKm");
+  await overitHodnotyVolieb(accessToken, [
+    { column: cols.stav, value: "Vratene" },
+    {
+      column: requireCol(cols.odovzdanieStav, "OdovzdanieStav"),
+      value: input.odovzdanieStav,
+    },
+  ]);
+}
+
+export async function odovzdatRezervaciu(
+  accessToken: string,
+  itemId: string,
+  input: OdovzdanieInput,
+): Promise<void> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  const fields: Record<string, unknown> = {
+    [requireCol(cols.odovzdanieCas, "OdovzdanieCas")]: new Date().toISOString(),
+    [requireCol(cols.odovzdanieKm, "OdovzdanieKm")]: input.km,
+    [requireCol(cols.odovzdanieStav, "OdovzdanieStav")]: input.odovzdanieStav,
+    [requireCol(cols.odovzdaniePoskodenie, "OdovzdaniePoskodenie")]:
+      input.poskodenie.trim(),
+    [requireCol(cols.najazdeneKm, "NajazdeneKm")]: input.najazdeneKm,
+    [cols.stav]: "Vratene",
+  };
+  if (input.skrateneDo) {
+    fields[cols.do] = toSharePointDateTime(input.skrateneDo.noveDo);
+    fields[cols.title] = input.skrateneDo.title;
+  }
+  await updateSharePointItemFields(
+    accessToken,
+    env.sharePointListRezervacieId,
+    itemId,
+    fields,
+  );
+}
+
+/**
+ * Posledný známy stav tachometra: OdovzdanieKm poslednej vrátenej rezervácie
+ * vozidla (podľa OdovzdanieCas). null = žiadna vrátená rezervácia s km.
+ */
+export async function fetchPoslednyOdovzdanyKm(
+  accessToken: string,
+  vozidloSpz: string,
+): Promise<number | null> {
+  await verifyVozidlaListIds(accessToken);
+  const cols = await getRezervaciaColumnMap(accessToken);
+  const spz = vozidloSpz.trim();
+  if (!spz || !cols.odovzdanieKm) return null;
+
+  const rows = await listAllSharePointItems(
+    accessToken,
+    env.sharePointListRezervacieId,
+    {
+      filter: [
+        `fields/${cols.vozidloSpz} eq '${escapeODataString(spz)}'`,
+        `fields/${cols.stav} eq 'Vratene'`,
+      ].join(" and "),
+      selectFields: rezervaciaSelectFields(cols),
+    },
+  );
+
+  let best: { cas: string; km: number } | null = null;
+  for (const row of rows) {
+    const r = parseRezervaciaRow(row.id, row.fields, cols);
+    if (!r || r.stav !== "Vratene" || r.odovzdanieKm == null) continue;
+    if (r.vozidloSpz.trim().toLowerCase() !== spz.toLowerCase()) continue;
+    const cas = r.odovzdanieCas || r.do;
+    if (!best || cas > best.cas) best = { cas, km: r.odovzdanieKm };
+  }
+  return best?.km ?? null;
 }
 
 export { todayDateOnly };

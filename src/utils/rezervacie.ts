@@ -5,7 +5,29 @@ import {
   daysAheadDateOnly,
   formatDateShort,
   parseDateOnly,
+  todayDateOnly,
 } from "./dates";
+
+/** Rezervované a Prevzaté blokujú vozidlo; Vrátené a Zrušené nikdy. */
+export function jeAktivnaRezervacia(r: Pick<Rezervacia, "stav">): boolean {
+  return r.stav === "Rezervovane" || r.stav === "Prevzate";
+}
+
+/** Prevzaté a neodovzdané po termíne. */
+export function jeNeodovzdanaPoTermine(
+  r: Pick<Rezervacia, "stav" | "do">,
+  dnes: string,
+): boolean {
+  return r.stav === "Prevzate" && r.do < dnes;
+}
+
+/** Posledný blokovaný deň: neodovzdané po termíne blokuje aj dnešok. */
+export function efektivnyKoniec(
+  r: Pick<Rezervacia, "stav" | "do">,
+  dnes: string,
+): string {
+  return jeNeodovzdanaPoTermine(r, dnes) ? dnes : r.do;
+}
 
 /** Maximálna dĺžka rezervácie (dni vrátane). */
 export const REZERVACIA_MAX_DAYS = 30;
@@ -34,11 +56,12 @@ export function najdiKolizie(
   existujuce: readonly Rezervacia[],
 ): Rezervacia[] {
   const spz = kandidat.vozidloSpz.trim().toLowerCase();
+  const dnes = todayDateOnly();
   return existujuce.filter((r) => {
     if (kandidat.excludeId && r.id === kandidat.excludeId) return false;
     if (r.vozidloSpz.trim().toLowerCase() !== spz) return false;
-    if (r.stav !== "Rezervovane" && r.stav !== "Prevzate") return false;
-    return prekryv(kandidat.od, kandidat.do, r.od, r.do);
+    if (!jeAktivnaRezervacia(r)) return false;
+    return prekryv(kandidat.od, kandidat.do, r.od, efektivnyKoniec(r, dnes));
   });
 }
 
@@ -56,12 +79,14 @@ export function obsadeneDniVozidla(
   const set = new Set<string>();
   const spz = vozidloSpz.trim().toLowerCase();
   if (!spz) return set;
+  const dnes = todayDateOnly();
   for (const r of rezervacie) {
     if (excludeId && r.id === excludeId) continue;
     if (r.vozidloSpz.trim().toLowerCase() !== spz) continue;
-    if (r.stav !== "Rezervovane" && r.stav !== "Prevzate") continue;
+    if (!jeAktivnaRezervacia(r)) continue;
+    const koniec = efektivnyKoniec(r, dnes);
     let d = r.od < od ? od : r.od;
-    const end = r.do > doDate ? doDate : r.do;
+    const end = koniec > doDate ? doDate : koniec;
     while (d <= end) {
       set.add(d);
       d = dayAfterDateOnly(d);
@@ -86,6 +111,7 @@ export type ObsadenyUsek = {
   rezervaciaId: string;
   meno: string;
   stav: string;
+  poTermine: boolean;
 };
 
 export type DostupnostInfo = {
@@ -105,8 +131,8 @@ export function dostupnostVozidla(
   const relevant = rezervacie
     .filter((r) => {
       if (r.vozidloSpz.trim().toLowerCase() !== spz) return false;
-      if (r.stav !== "Rezervovane" && r.stav !== "Prevzate") return false;
-      return prekryv(r.od, r.do, dnes, horizon);
+      if (!jeAktivnaRezervacia(r)) return false;
+      return prekryv(r.od, efektivnyKoniec(r, dnes), dnes, horizon);
     })
     .sort((a, b) => a.od.localeCompare(b.od));
 
@@ -116,7 +142,13 @@ export function dostupnostVozidla(
     rezervaciaId: r.id,
     meno: menoZRezervacie(r),
     stav: r.stav,
+    poTermine: jeNeodovzdanaPoTermine(r, dnes),
   }));
+
+  const neodovzdana = relevant.find((r) => jeNeodovzdanaPoTermine(r, dnes));
+  if (neodovzdana) {
+    return { text: `Neodovzdané (${menoZRezervacie(neodovzdana)})`, useky };
+  }
 
   const coveringToday = relevant.find((r) => r.od <= dnes && r.do >= dnes);
   if (coveringToday) {
@@ -144,22 +176,22 @@ export function hubVozidlaStatusText(
   dnes: string,
   nazovBySpz: (spz: string) => string,
 ): string {
-  const aktivne = rezervacie.filter(
-    (r) => r.stav === "Rezervovane" || r.stav === "Prevzate",
-  );
+  const aktivne = rezervacie.filter(jeAktivnaRezervacia);
   if (aktivne.length === 0) return "Žiadna rezervácia";
+  const nazov = (r: Rezervacia) =>
+    nazovBySpz(r.vozidloSpz) || r.vozidloSpz;
 
-  const prebiehajuce = aktivne
-    .filter((r) => r.od <= dnes && r.do >= dnes)
-    .sort((a, b) => a.do.localeCompare(b.do));
+  const prevzata = aktivne
+    .filter((r) => r.stav === "Prevzate")
+    .sort((a, b) => a.do.localeCompare(b.do))[0];
+  if (prevzata) return `Vozidlo ${nazov(prevzata)} – prevzaté, odovzdať`;
 
-  const pick = prebiehajuce[0]
-    ?? [...aktivne].sort((a, b) => a.od.localeCompare(b.od))[0];
-  if (!pick) return "Žiadna rezervácia";
+  const naPrevzatie = aktivne
+    .filter((r) => r.stav === "Rezervovane" && r.od <= dnes)
+    .sort((a, b) => a.od.localeCompare(b.od))[0];
+  if (naPrevzatie) return `Vozidlo ${nazov(naPrevzatie)} – prevziať`;
 
-  const nazov = nazovBySpz(pick.vozidloSpz) || pick.vozidloSpz;
-  if (pick.stav === "Prevzate") {
-    return `Prevzaté: ${nazov} — odovzdať`;
-  }
-  return `Rezervované: ${nazov} ${formatRezervaciaObdobie(pick.od, pick.do)}`;
+  const dalsia = [...aktivne].sort((a, b) => a.od.localeCompare(b.od))[0];
+  if (!dalsia) return "Žiadna rezervácia";
+  return `Rezervované: ${nazov(dalsia)} ${formatRezervaciaObdobie(dalsia.od, dalsia.do)}`;
 }

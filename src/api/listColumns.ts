@@ -69,6 +69,54 @@ export async function fetchListColumns(
   return cols;
 }
 
+export type ListColumnChoiceInfo = {
+  displayName: string;
+  /** null = stĺpec nie je Voľba alebo povoľuje vlastné hodnoty */
+  choices: string[] | null;
+};
+
+/** Povolené hodnoty stĺpcov typu Voľba (Choice), podľa interného názvu. */
+export async function fetchListColumnChoices(
+  accessToken: string,
+  siteId: string,
+  listId: string,
+): Promise<Map<string, ListColumnChoiceInfo>> {
+  let url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/columns?$select=name,displayName,choice&$top=200`;
+  const out = new Map<string, ListColumnChoiceInfo>();
+
+  while (url) {
+    const res = await graphFetch(accessToken, url);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(
+        `SharePoint columns HTTP ${res.status}: ${parseGraphErrorBody(body)}`,
+      );
+    }
+    const page = (await res.json()) as {
+      value?: Array<{
+        name?: string;
+        displayName?: string;
+        choice?: { allowTextEntry?: boolean; choices?: string[] };
+      }>;
+      "@odata.nextLink"?: string;
+    };
+    for (const col of page.value ?? []) {
+      if (!col.name) continue;
+      const choices =
+        col.choice && !col.choice.allowTextEntry
+          ? (col.choice.choices ?? [])
+          : null;
+      out.set(col.name, {
+        displayName: col.displayName ?? col.name,
+        choices,
+      });
+    }
+    url = page["@odata.nextLink"] ?? "";
+  }
+
+  return out;
+}
+
 /** Nájde interný názov stĺpca podľa preferovaných mien alebo zobrazovaného názvu */
 export function resolveListColumn(
   columns: ListColumnInfo[],

@@ -16,6 +16,18 @@ export type RezervaciaStav =
   | "Zrusene"
   | string;
 
+/** Hodnoty stĺpca PrevzatieStav */
+export const PREVZATIE_STAV = {
+  bezVyhrad: "BezVyhrad",
+  sVyhradou: "SVyhradou",
+} as const;
+
+/** Hodnoty stĺpca OdovzdanieStav */
+export const ODOVZDANIE_STAV = {
+  bezPoskodenia: "BezPoskodenia",
+  sPoskodenim: "SPoskodenim",
+} as const;
+
 export type RezervaciaColumnMap = {
   title: string;
   vozidloSpz: string;
