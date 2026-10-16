@@ -7,6 +7,7 @@ import {
   Text,
 } from "react-native";
 import { BottomSheetModal } from "./BottomSheetModal";
+import { cs } from "../i18n/cs";
 import { colors, font, spacing } from "../theme";
 import type { UkonItem } from "../types/ukon";
 
@@ -34,7 +35,7 @@ export function UkonPickerModal({
   onRetry,
 }: Props) {
   return (
-    <BottomSheetModal visible={visible} title="Úkon" onClose={onClose}>
+    <BottomSheetModal visible={visible} title={cs.picker.ukon} onClose={onClose}>
       {isLoading ? (
         <ActivityIndicator
           style={{ marginVertical: spacing.md }}
@@ -45,11 +46,11 @@ export function UkonPickerModal({
           <Text style={styles.error} selectable>
             {error instanceof Error
               ? error.message
-              : "Nepodarilo sa načítať úkony."}
+              : cs.picker.nacteniUkonu}
           </Text>
           {onRetry ? (
             <Pressable style={styles.retryBtn} onPress={onRetry}>
-              <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+              <Text style={styles.retryBtnText}>{cs.spolecne.zkusitZnovu}</Text>
             </Pressable>
           ) : null}
         </>
@@ -78,7 +79,7 @@ export function UkonPickerModal({
             </Pressable>
           ))}
           {(ukony?.length ?? 0) === 0 ? (
-            <Text style={styles.muted}>Zoznam úkonov je prázdny.</Text>
+            <Text style={styles.muted}>{cs.picker.prazdnySeznamUkonu}</Text>
           ) : null}
         </ScrollView>
       )}

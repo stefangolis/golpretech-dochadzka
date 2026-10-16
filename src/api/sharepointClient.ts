@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 
 export function assertSharePointConfig(): void {
   if (
@@ -8,7 +9,7 @@ export function assertSharePointConfig(): void {
     !env.sharePointListZaznamyId
   ) {
     throw new Error(
-      "Chýbajú SharePoint premenné v .env (SITE_ID / LIST_*). Reštartujte Expo po úprave.",
+      cs.sharepoint.chybiEnv,
     );
   }
 }
@@ -38,14 +39,10 @@ function formatSharePointHttpError(
 ): string {
   const detail = parseGraphErrorBody(body);
   if (status === 403) {
-    return (
-      "Nemáte prístup k SharePoint zoznamu (403). " +
-      "Požiadajte správcu, aby vám na site dochádzky pridal oprávnenie Upraviť " +
-      "(zoznamy Zákazky, Prijaté objednávky a Časové záznamy)."
-    );
+    return cs.sharepoint.nematePristup;
   }
   if (status === 401) {
-    return "Prihlásenie vypršalo. Odhláste sa a prihláste sa znova.";
+    return cs.sharepoint.prihlaseniVyprslo;
   }
   return `SharePoint list ${listId} HTTP ${status}: ${detail}`;
 }

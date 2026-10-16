@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -14,6 +11,8 @@ import {
 } from "react-native";
 import { BottomSheetModal } from "./BottomSheetModal";
 import { CalendarModal } from "./CalendarModal";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { FormScrollView } from "./FormScrollView";
 import { UkonPickerModal } from "./UkonPickerModal";
 import { WorkItemPickerModal } from "./WorkItemPickerModal";
 import { findUkonByNazov } from "../api/ukonFields";
@@ -24,6 +23,7 @@ import { useUpdateTimeEntry } from "../hooks/useMyEntries";
 import { useUkony } from "../hooks/useUkony";
 import { useWorkCatalog } from "../hooks/useWorkItems";
 import { formatTimeEntryWorkLine, type ZakazkaLookup } from "../api/workItemsPicker";
+import { cs } from "../i18n/cs";
 import { colors, font, spacing } from "../theme";
 import type { UkonItem } from "../types/ukon";
 import type { TimeEntry, WorkItem } from "../types/workItems";
@@ -35,6 +35,12 @@ import {
   myEntriesMinDateOnly,
   todayDateOnly,
 } from "../utils/dates";
+import {
+  LIMIT_MINUT,
+  skontrolujMinuty,
+  textUpozorneniaMinut,
+} from "../utils/odvodMinuty";
+import { orezDni, zoskupZapisyPodlaDna } from "../utils/odvodZapisy";
 import type { EntrySelection } from "../utils/validation";
 import { parseMinutes, validateTimeEntryEdit } from "../utils/validation";
 
@@ -54,6 +60,7 @@ export function MyEntriesSection({
   error,
 }: Props) {
   const { getValidAccessToken } = useAuth();
+  const T = cs.odvod;
   const workCatalogQuery = useWorkCatalog();
   const catalogLookup = workCatalogQuery.data?.zakazkyById;
   const [extraLookup, setExtraLookup] = useState<ZakazkaLookup>({});
@@ -93,61 +100,73 @@ export function MyEntriesSection({
   }, [entries, catalogLookup, getValidAccessToken]);
 
   const allEntries = entries ?? [];
-  const visibleEntries = expanded
-    ? allEntries
-    : allEntries.slice(0, COLLAPSED_COUNT);
+  const dni = useMemo(() => zoskupZapisyPodlaDna(entries ?? []), [entries]);
+  const visibleDni = expanded ? dni : orezDni(dni, COLLAPSED_COUNT);
   const showToggle = allEntries.length > 0;
   const toggleLabel = expanded
-    ? "Skryť"
+    ? cs.spolecne.skryt
     : allEntries.length > COLLAPSED_COUNT
-      ? `Zobraziť všetky (${allEntries.length})`
-      : "Upraviť záznamy";
+      ? T.zobrazitVse(allEntries.length)
+      : T.upravitZaznamy;
 
   return (
     <>
-      <Text style={styles.sectionTitle}>Moje záznamy</Text>
-      <Text style={styles.sectionHint}>Posledný týždeň</Text>
+      <Text style={styles.sectionTitle}>{T.mojeZaznamy}</Text>
+      <Text style={styles.sectionHint}>{T.posledniTyden}</Text>
 
       {isLoading ? (
         <ActivityIndicator color={colors.primary} />
       ) : isError ? (
         <Text style={styles.error}>
-          {error instanceof Error
-            ? error.message
-            : "Nepodarilo sa načítať záznamy."}
+          {error instanceof Error ? error.message : T.nacteniZaznamu}
         </Text>
       ) : allEntries.length === 0 ? (
-        <Text style={styles.muted}>Zatiaľ žiadne záznamy.</Text>
+        <Text style={styles.muted}>{T.prazdne}</Text>
       ) : (
         <View style={styles.card}>
-          {visibleEntries.map((e, idx) => {
-            const editable = expanded && isEditableEntryDate(e.datum);
-            return (
-              <Pressable
-                key={e.id}
-                disabled={!editable}
-                onPress={() => editable && setEditing(e)}
-                style={[
-                  styles.entryRow,
-                  idx < visibleEntries.length - 1 && styles.entryBorder,
-                  editable && styles.entryRowEditable,
-                ]}
-              >
-                <Text style={styles.entryMain}>
-                  {formatDateSk(e.datum)} · {e.minuty} min
-                  {e.ukon ? ` · ${e.ukon}` : ""}
-                  {e.rework ? " · Rework" : ""}
+          {visibleDni.map((den) => (
+            <View key={den.datum}>
+              <View style={styles.dayHeader}>
+                <Text style={styles.dayTitle}>{den.nadpis}</Text>
+                <Text
+                  style={[
+                    styles.daySum,
+                    den.sucetMin > LIMIT_MINUT && styles.daySumOver,
+                  ]}
+                >
+                  {den.sucetText}
                 </Text>
-                <Text style={styles.entrySub} numberOfLines={2}>
-                  {formatTimeEntryWorkLine(e, zakazkyById)}
-                  {e.poznamka ? ` · ${e.poznamka}` : ""}
-                </Text>
-                {editable ? (
-                  <Text style={styles.entryEditHint}>Klepnutím upravíte</Text>
-                ) : null}
-              </Pressable>
-            );
-          })}
+              </View>
+              {den.zapisy.map((e) => {
+                const editable = expanded && isEditableEntryDate(e.datum);
+                return (
+                  <Pressable
+                    key={e.id}
+                    disabled={!editable}
+                    onPress={() => editable && setEditing(e)}
+                    style={[
+                      styles.entryRow,
+                      styles.entryBorder,
+                      editable && styles.entryRowEditable,
+                    ]}
+                  >
+                    <Text style={styles.entryMain}>
+                      {e.minuty} min
+                      {e.ukon ? ` · ${e.ukon}` : ""}
+                      {e.rework ? " · Rework" : ""}
+                    </Text>
+                    <Text style={styles.entrySub} numberOfLines={2}>
+                      {formatTimeEntryWorkLine(e, zakazkyById)}
+                      {e.poznamka ? ` · ${e.poznamka}` : ""}
+                    </Text>
+                    {editable ? (
+                      <Text style={styles.entryEditHint}>{T.klepnutimUpravite}</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
 
           {showToggle ? (
             <Pressable
@@ -162,6 +181,7 @@ export function MyEntriesSection({
 
       <EditEntryModal
         entry={editing}
+        vsetkyZaznamy={entries}
         zakazkyById={zakazkyById}
         onClose={() => setEditing(null)}
       />
@@ -205,20 +225,37 @@ function buildSelection(
   return null;
 }
 
+type UpravaZapisu = {
+  id: string;
+  datum: string;
+  zakazkaId: string;
+  cisloObjednavky: string;
+  minuty: number;
+  ukon: string;
+  rework: boolean;
+  poznamka: string;
+};
+
 function EditEntryModal({
   entry,
+  vsetkyZaznamy,
   zakazkyById,
   onClose,
 }: {
   entry: TimeEntry | null;
+  /** Načítané vlastné zápisy (okno 7 dní) pre súčet dňa */
+  vsetkyZaznamy: TimeEntry[] | undefined;
   zakazkyById: ZakazkaLookup;
   onClose: () => void;
 }) {
+  const T = cs.odvod;
   const updateEntry = useUpdateTimeEntry();
   const workCatalogQuery = useWorkCatalog();
   const ukonyQuery = useUkony();
-  const editScrollRef = useRef<ScrollView>(null);
-  const noteFocusedRef = useRef(false);
+  const [upozornenie, setUpozornenie] = useState<{
+    text: string;
+    zmena: UpravaZapisu;
+  } | null>(null);
   const [dateOnly, setDateOnly] = useState(todayDateOnly());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [minutesRaw, setMinutesRaw] = useState("");
@@ -248,15 +285,8 @@ function EditEntryModal({
   );
 
   useEffect(() => {
-    const sub = Keyboard.addListener("keyboardDidShow", () => {
-      if (!noteFocusedRef.current) return;
-      editScrollRef.current?.scrollToEnd({ animated: true });
-    });
-    return () => sub.remove();
-  }, []);
-
-  useEffect(() => {
     if (!entry) return;
+    setUpozornenie(null);
     setDateOnly(entry.datum);
     setSelectedKey(workKeyFromEntry(entry));
     setMinutesRaw(String(entry.minuty));
@@ -281,7 +311,7 @@ function EditEntryModal({
   const onSave = async () => {
     if (!entry) return;
     if (!isEditableEntryDate(entry.datum)) {
-      setFormError("Záznam starší ako týždeň nie je možné upraviť.");
+      setFormError(T.staryZaznam);
       return;
     }
 
@@ -305,17 +335,36 @@ function EditEntryModal({
     if (minuty == null || !selectedUkon || !selection) return;
 
     setFormError(null);
-    try {
-      await updateEntry.mutateAsync({
-        id: entry.id,
-        datum: dateOnly,
-        zakazkaId: selection.zakazkaId,
-        cisloObjednavky: selection.cisloObjednavky,
+    const zmena: UpravaZapisu = {
+      id: entry.id,
+      datum: dateOnly,
+      zakazkaId: selection.zakazkaId,
+      cisloObjednavky: selection.cisloObjednavky,
+      minuty,
+      ukon: selectedUkon.nazov,
+      rework,
+      poznamka: note.trim(),
+    };
+    const text = textUpozorneniaMinut(
+      skontrolujMinuty({
         minuty,
-        ukon: selectedUkon.nazov,
-        rework,
-        poznamka: note.trim(),
-      });
+        datum: dateOnly,
+        zaznamy: vsetkyZaznamy,
+        nacitaneOd: myEntriesMinDateOnly(),
+        nacitaneDo: todayDateOnly(),
+        upravovaneId: entry.id,
+      }),
+    );
+    if (text) {
+      setUpozornenie({ text, zmena });
+      return;
+    }
+    await ulozit(zmena);
+  };
+
+  const ulozit = async (zmena: UpravaZapisu) => {
+    try {
+      await updateEntry.mutateAsync(zmena);
       onClose();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
@@ -334,32 +383,24 @@ function EditEntryModal({
       {formatTimeEntryWorkLine(entry, zakazkyById)}
     </Text>
   ) : (
-    <Text style={styles.selectPlaceholder}>Vyberte zákazku alebo objednávku…</Text>
+    <Text style={styles.selectPlaceholder}>{T.vyberteZakazku}</Text>
   );
 
   return (
     <>
       <BottomSheetModal
         visible={entry != null}
-        title="Upraviť záznam"
+        title={T.upravitZaznam}
         onClose={onClose}
         tall
         dismissOnBackdrop={false}
       >
         {entry ? (
-          <KeyboardAvoidingView
-            style={styles.editFlex}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <ScrollView
-              ref={editScrollRef}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.editScrollContent}
-            >
-            <Text style={styles.label}>Dátum *</Text>
+          <FormScrollView contentContainerStyle={styles.editScrollContent}>
+            <Text style={styles.label}>{T.datumKratky}</Text>
             <View style={styles.dateRow}>
               <DateChip
-                title="Dnes"
+                title={cs.spolecne.dnes}
                 active={dateOnly === today}
                 onPress={() => setDateOnly(today)}
               />
@@ -374,7 +415,7 @@ function EditEntryModal({
                 onPress={() => setDateOnly(dayBefore)}
               />
               <DateChip
-                title="Manuálne"
+                title={T.manualne}
                 active={
                   dateOnly !== today &&
                   dateOnly !== yesterday &&
@@ -386,7 +427,7 @@ function EditEntryModal({
             </View>
             <Text style={styles.dateValue}>{formatDateSk(dateOnly)}</Text>
 
-            <Text style={styles.label}>Zákazka / objednávka *</Text>
+            <Text style={styles.label}>{T.zakazkaKratka}</Text>
             <Pressable
               style={styles.selectBtn}
               onPress={() => setWorkOpen(true)}
@@ -394,7 +435,7 @@ function EditEntryModal({
               {workDisplay}
             </Pressable>
 
-            <Text style={styles.label}>Minúty *</Text>
+            <Text style={styles.label}>{T.minutyLabel}</Text>
             <View style={styles.minutesRow}>
               <Pressable
                 style={styles.minutesDropdown}
@@ -405,7 +446,7 @@ function EditEntryModal({
                     minutesRaw ? styles.selectValue : styles.selectPlaceholder
                   }
                 >
-                  {minutesRaw || "Vyberte…"}
+                  {minutesRaw || cs.spolecne.vyberte}
                 </Text>
               </Pressable>
               <TextInput
@@ -413,12 +454,12 @@ function EditEntryModal({
                 value={minutesRaw}
                 onChangeText={setMinutesRaw}
                 keyboardType="number-pad"
-                placeholder="ručne"
+                placeholder={T.rucne}
                 placeholderTextColor={colors.muted}
               />
             </View>
 
-            <Text style={styles.label}>Úkon *</Text>
+            <Text style={styles.label}>{T.ukon}</Text>
             <Pressable
               style={styles.selectBtn}
               onPress={() => setUkonOpen(true)}
@@ -428,12 +469,12 @@ function EditEntryModal({
                   selectedUkon ? styles.selectValue : styles.selectPlaceholder
                 }
               >
-                {selectedUkon?.nazov ?? "Vyberte úkon…"}
+                {selectedUkon?.nazov ?? T.vyberteUkon}
               </Text>
             </Pressable>
 
             <View style={styles.reworkRow}>
-              <Text style={styles.labelInline}>Rework</Text>
+              <Text style={styles.labelInline}>{T.rework}</Text>
               <Switch
                 value={rework}
                 onValueChange={setRework}
@@ -445,20 +486,16 @@ function EditEntryModal({
               />
             </View>
 
-            <Text style={styles.label}>Poznámka{rework ? " *" : ""}</Text>
+            <Text style={styles.label}>
+              {rework ? T.poznamkaPovinna : T.poznamkaVolitelna}
+            </Text>
             <TextInput
               style={[styles.input, styles.noteInput]}
               value={note}
               onChangeText={setNote}
-              placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
+              placeholder={rework ? T.poznamkaPovinna : T.poznamkaVolitelna}
               placeholderTextColor={colors.muted}
               multiline
-              onFocus={() => {
-                noteFocusedRef.current = true;
-              }}
-              onBlur={() => {
-                noteFocusedRef.current = false;
-              }}
             />
 
             {formError ? (
@@ -481,13 +518,26 @@ function EditEntryModal({
               {updateEntry.isPending ? (
                 <ActivityIndicator color={colors.primaryText} />
               ) : (
-                <Text style={styles.saveBtnText}>Uložiť zmeny</Text>
+                <Text style={styles.saveBtnText}>{T.ulozitZmeny}</Text>
               )}
             </Pressable>
-            </ScrollView>
-          </KeyboardAvoidingView>
+          </FormScrollView>
         ) : null}
       </BottomSheetModal>
+
+      <ConfirmDialog
+        visible={upozornenie !== null}
+        title={T.skontrolujMinuty}
+        message={upozornenie?.text}
+        confirmLabel={cs.spolecne.ulozit}
+        cancelLabel={cs.spolecne.opravit}
+        onConfirm={() => {
+          const zmena = upozornenie?.zmena;
+          setUpozornenie(null);
+          if (zmena) void ulozit(zmena);
+        }}
+        onClose={() => setUpozornenie(null)}
+      />
 
       <CalendarModal
         visible={calendarOpen}
@@ -506,7 +556,7 @@ function EditEntryModal({
 
       <BottomSheetModal
         visible={minutesOpen}
-        title="Minúty"
+        title={T.minutyTitulek}
         onClose={() => setMinutesOpen(false)}
       >
         {MINUTE_PRESETS.map((m) => (
@@ -614,6 +664,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   entryBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  dayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    backgroundColor: colors.primarySoft,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dayTitle: { fontSize: font.md, fontWeight: "800", color: colors.text },
+  daySum: { fontSize: font.sm, fontWeight: "700", color: colors.primary },
+  daySumOver: { color: colors.danger },
   entryMain: { fontSize: font.md, fontWeight: "700", color: colors.text },
   entrySub: { fontSize: font.sm, color: colors.muted },
   entryEditHint: {

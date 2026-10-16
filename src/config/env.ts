@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { cs } from "../i18n/cs";
 
 type Extra = {
   entraTenantId?: string;
@@ -10,6 +11,10 @@ type Extra = {
   sharePointListUkonyId?: string;
   sharePointListVozidlaId?: string;
   sharePointListRezervacieId?: string;
+  sharePointListDochadzkaUdalostiId?: string;
+  sharePointListDochadzkaNfcTagyId?: string;
+  sharePointListDochadzkaOpravneniaId?: string;
+  sharePointListDochadzkaZiadostiId?: string;
 };
 
 function extra(): Extra {
@@ -44,12 +49,22 @@ export const env = {
   get sharePointListRezervacieId() {
     return extra().sharePointListRezervacieId?.trim() ?? "";
   },
+  get sharePointListDochadzkaUdalostiId() {
+    return extra().sharePointListDochadzkaUdalostiId?.trim() ?? "";
+  },
+  get sharePointListDochadzkaNfcTagyId() {
+    return extra().sharePointListDochadzkaNfcTagyId?.trim() ?? "";
+  },
+  get sharePointListDochadzkaOpravneniaId() {
+    return extra().sharePointListDochadzkaOpravneniaId?.trim() ?? "";
+  },
+  get sharePointListDochadzkaZiadostiId() {
+    return extra().sharePointListDochadzkaZiadostiId?.trim() ?? "";
+  },
 };
 
 export function assertAuthConfig(): void {
   if (!env.entraTenantId || !env.entraClientId) {
-    throw new Error(
-      "Chýba ENTRA_TENANT_ID alebo ENTRA_CLIENT_ID v súbore .env (reštartujte Expo po úprave).",
-    );
+    throw new Error(cs.auth.chybiEntra);
   }
 }

@@ -1,25 +1,6 @@
 import React from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, font, spacing } from "../../theme";
-
-/** Varovanie s možnosťou pokračovať. true = používateľ pokračuje. */
-export function potvrditAsync(
-  title: string,
-  message: string,
-  confirmText = "Pokračovať",
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      title,
-      message,
-      [
-        { text: "Opraviť", style: "cancel", onPress: () => resolve(false) },
-        { text: confirmText, onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    );
-  });
-}
 
 export function VolbaDvoch<T extends string>({
   value,

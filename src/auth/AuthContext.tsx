@@ -15,6 +15,9 @@ import {
   getDiscovery,
   getRedirectUri,
 } from "./authConfig";
+import { cs } from "../i18n/cs";
+import { isNetworkError } from "../utils/network";
+import { clearProfile, loadProfile, saveProfile } from "./profileStore";
 import {
   clearTokens,
   loadTokens,
@@ -64,12 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hydrateUser = useCallback(async (token: string) => {
     const me = await fetchMe(token);
     const email = resolveEmployeeEmail(me);
-    setUser({
+    const profile = {
       email,
       displayName: me.displayName?.trim() || email,
       me,
-    });
+    };
+    setUser(profile);
     setAccessToken(token);
+    await saveProfile(profile);
   }, []);
 
   const refreshAccessToken = useCallback(
@@ -96,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const getValidAccessToken = useCallback(async (): Promise<string> => {
     const stored = await loadTokens();
     if (!stored) {
-      throw new Error("Nie ste prihlásený.");
+      throw new Error(cs.spolecne.nejstePrihlasen);
     }
 
     const skewMs = 60_000;
@@ -109,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await clearTokens();
       setUser(null);
       setAccessToken(null);
-      throw new Error("Platnosť prihlásenia vypršala. Prihláste sa znova.");
+      throw new Error(cs.auth.platnostVyprsela);
     }
 
     const refreshed = await refreshAccessToken(stored.refreshToken);
@@ -138,11 +143,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           await hydrateUser(token);
         }
-      } catch {
-        await clearTokens();
-        if (!cancelled) {
-          setUser(null);
-          setAccessToken(null);
+      } catch (err) {
+        // Bez siete ostáva používateľ prihlásený s posledným profilom; tokeny sa obnovia neskôr.
+        const offlineProfile = isNetworkError(err) ? await loadProfile() : null;
+        if (offlineProfile) {
+          if (!cancelled) setUser(offlineProfile);
+        } else {
+          await clearTokens();
+          if (!cancelled) {
+            setUser(null);
+            setAccessToken(null);
+          }
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -171,7 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async () => {
     assertAuthConfig();
     if (!request) {
-      throw new Error("Prihlásenie ešte nie je pripravené. Skúste znova.");
+      throw new Error(cs.auth.neniPripraveno);
     }
 
     const result = await promptAsync({ showInRecents: true });
@@ -179,7 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (result.type === "dismiss" || result.type === "cancel") {
         return;
       }
-      throw new Error(`Prihlásenie zlyhalo (${result.type}).`);
+      throw new Error(cs.auth.zlyhalo(result.type));
     }
 
     const tokenResult = await AuthSession.exchangeCodeAsync(
@@ -201,6 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     await clearTokens();
+    await clearProfile();
     setUser(null);
     setAccessToken(null);
   }, []);
@@ -224,7 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    throw new Error("useAuth musí byť v AuthProvider.");
+    throw new Error(cs.auth.useAuthMimo);
   }
   return ctx;
 }

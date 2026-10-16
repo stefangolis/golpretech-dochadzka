@@ -1,3 +1,5 @@
+import { cs } from "../i18n/cs";
+
 export type GraphMe = {
   id: string;
   displayName?: string;
@@ -8,7 +10,7 @@ export type GraphMe = {
 export function resolveEmployeeEmail(me: GraphMe): string {
   const email = (me.mail || me.userPrincipalName || "").trim();
   if (!email) {
-    throw new Error("Graph /me nevrátil email (mail ani userPrincipalName).");
+    throw new Error(cs.auth.graphBezEmailu);
   }
   return email;
 }
@@ -23,7 +25,7 @@ export async function fetchMe(accessToken: string): Promise<GraphMe> {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Graph /me zlyhal (HTTP ${res.status}): ${body.slice(0, 300)}`);
+    throw new Error(cs.auth.graphMeZlyhal(res.status, body.slice(0, 300)));
   }
 
   return (await res.json()) as GraphMe;

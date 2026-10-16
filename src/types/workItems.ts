@@ -27,4 +27,6 @@ export type TimeEntry = {
   rework: boolean;
   poznamka: string;
   casZapisu: string;
+  /** SharePoint Created (CasZapisu môže byť len dátum) */
+  created: string;
 };

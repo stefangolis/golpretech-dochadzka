@@ -38,24 +38,28 @@ const activeWithOrder = zak({
   stavAktivna: true,
 });
 
+const meta = { datumObjednavky: "", created: "", itemId: "" };
 const orders: ParsedObjednavka[] = [
   {
     cisloObjednavky: "PO-INACTIVE",
     zakazkaId: "VYZAK260001",
     zakaznik: "ACME",
     stav: "Otvorena",
+    ...meta,
   },
   {
     cisloObjednavky: "PO-ACTIVE",
     zakazkaId: "VYZAK260003",
     zakaznik: "Gama",
     stav: "Otvorena",
+    ...meta,
   },
   {
     cisloObjednavky: "PO-NEAKTIVNA",
     zakazkaId: "VYZAK260003",
     zakaznik: "Gama",
     stav: "Neaktivna",
+    ...meta,
   },
 ];
 

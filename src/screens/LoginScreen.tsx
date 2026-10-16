@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../auth/AuthContext";
+import { cs } from "../i18n/cs";
 import { colors, spacing } from "../theme";
 
 export function LoginScreen() {
@@ -30,11 +31,8 @@ export function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-        <Text style={styles.brand}>Golpretech</Text>
-        <Text style={styles.title}>Dochádzka výroby</Text>
-        <Text style={styles.subtitle}>
-          Prihláste sa firemným Office 365 účtom.
-        </Text>
+        <Text style={styles.title}>{cs.nazov}</Text>
+        <Text style={styles.subtitle}>{cs.prihlaseni.podtitulek}</Text>
 
         <Pressable
           style={[styles.button, busy && styles.buttonDisabled]}
@@ -44,14 +42,14 @@ export function LoginScreen() {
           {busy ? (
             <ActivityIndicator color={colors.primaryText} />
           ) : (
-            <Text style={styles.buttonText}>Prihlásiť sa cez Microsoft</Text>
+            <Text style={styles.buttonText}>{cs.prihlaseni.prihlasit}</Text>
           )}
         </Pressable>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <View style={styles.redirectBox}>
-          <Text style={styles.redirectLabel}>Redirect URI (do Entra ID):</Text>
+          <Text style={styles.redirectLabel}>{cs.prihlaseni.redirectUri}</Text>
           <Text selectable style={styles.redirectValue}>
             {redirectUri}
           </Text>
@@ -68,13 +66,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     justifyContent: "center",
     gap: spacing.md,
-  },
-  brand: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.primary,
-    letterSpacing: 1,
-    textTransform: "uppercase",
   },
   title: {
     fontSize: 34,

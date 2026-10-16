@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   StyleSheet,
@@ -10,6 +9,8 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { cs } from "../i18n/cs";
 import { colors, font, spacing } from "../theme";
 
 const MAX_SIDE = 1280;
@@ -51,6 +52,10 @@ async function zmensitFotku(asset: ImagePicker.ImagePickerAsset): Promise<string
 
 export function FotkyPicker({ fotky, onChange, max = 5, disabled }: Props) {
   const [busy, setBusy] = useState(false);
+  const [dialog, setDialog] = useState<{ title: string; message: string } | null>(
+    null,
+  );
+  const T = cs.vozidla.fotky;
   const zostava = max - fotky.length;
 
   const pridat = async (assets: ImagePicker.ImagePickerAsset[]) => {
@@ -66,10 +71,10 @@ export function FotkyPicker({ fotky, onChange, max = 5, disabled }: Props) {
     try {
       await fn();
     } catch (err) {
-      Alert.alert(
-        "Fotka",
-        err instanceof Error ? err.message : "Fotku sa nepodarilo spracovať.",
-      );
+      setDialog({
+        title: T.titulek,
+        message: err instanceof Error ? err.message : T.zpracovani,
+      });
     } finally {
       setBusy(false);
     }
@@ -79,10 +84,10 @@ export function FotkyPicker({ fotky, onChange, max = 5, disabled }: Props) {
     run(async () => {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert(
-          "Fotoaparát",
-          "Bez povolenia fotoaparátu nie je možné fotiť. Povoľte ho v nastaveniach alebo vyberte fotku z galérie.",
-        );
+        setDialog({
+          title: T.fotoaparat,
+          message: T.bezPovoleni,
+        });
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -136,20 +141,28 @@ export function FotkyPicker({ fotky, onChange, max = 5, disabled }: Props) {
           disabled={!canAdd}
           onPress={() => void odfotit()}
         >
-          <Text style={styles.btnText}>Odfotiť</Text>
+          <Text style={styles.btnText}>{T.odfotit}</Text>
         </Pressable>
         <Pressable
           style={[styles.btn, !canAdd && styles.btnDisabled]}
           disabled={!canAdd}
           onPress={() => void zGalerie()}
         >
-          <Text style={styles.btnText}>Z galérie</Text>
+          <Text style={styles.btnText}>{T.zGalerie}</Text>
         </Pressable>
         {busy ? <ActivityIndicator color={colors.primary} /> : null}
       </View>
       <Text style={styles.hint}>
-        {fotky.length}/{max} fotiek
+        {T.pocet(fotky.length, max)}
       </Text>
+      <ConfirmDialog
+        visible={dialog != null}
+        title={dialog?.title ?? T.titulek}
+        message={dialog?.message}
+        confirmLabel={cs.spolecne.ok}
+        onConfirm={() => setDialog(null)}
+        onClose={() => setDialog(null)}
+      />
     </View>
   );
 }

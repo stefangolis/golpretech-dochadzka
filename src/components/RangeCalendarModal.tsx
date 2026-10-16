@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { cs, pocetDni } from "../i18n/cs";
+import { DNY_TYDNE_OD_PONDELI, formatMesicRok } from "../i18n/datum";
 import { colors, font, spacing } from "../theme";
 import {
-  formatDateSk,
+  formatDateCs,
   inclusiveDayCount,
   parseDateOnly,
   toDateOnly,
@@ -31,7 +33,8 @@ function initialMonth(od: string, minDate: string): Date {
   return monthStart(parseDateOnly(anchor));
 }
 
-const WEEKDAYS = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
+const WEEKDAYS = DNY_TYDNE_OD_PONDELI;
+const T = cs.kalendarRozsah;
 
 function monthStart(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -71,7 +74,7 @@ export function RangeCalendarModal({
   maxDays,
   busyDates,
   fixedStart = false,
-  title = "Termín rezervácie",
+  title = T.titulek,
   onConfirm,
   onClose,
 }: Props) {
@@ -110,10 +113,7 @@ export function RangeCalendarModal({
     return out;
   }, [viewMonth]);
 
-  const monthLabel = viewMonth.toLocaleDateString("sk-SK", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = formatMesicRok(viewMonth.getFullYear(), viewMonth.getMonth() + 1);
 
   const canPrev =
     toDateOnly(addMonths(viewMonth, -1)) >=
@@ -125,7 +125,7 @@ export function RangeCalendarModal({
   const onDayPress = (d: string) => {
     setHint(null);
     if (busyDates?.has(d)) {
-      setHint("Vozidlo je v tento deň už rezervované.");
+      setHint(T.denObsazen);
       return;
     }
     if (fixedStart) {
@@ -137,11 +137,11 @@ export function RangeCalendarModal({
       return;
     }
     if (rangeHasBusy(start, d, busyDates)) {
-      setHint("V zvolenom období je vozidlo už rezervované. Vyberte kratší úsek.");
+      setHint(T.obdobiObsazeno);
       return;
     }
     if (maxDays && inclusiveDayCount(start, d) > maxDays) {
-      setHint(`Maximálna dĺžka rezervácie je ${maxDays} dní.`);
+      setHint(T.maxDelka(maxDays));
       return;
     }
     setEnd(d);
@@ -150,9 +150,9 @@ export function RangeCalendarModal({
   const effectiveEnd = end ?? start;
   const summary = start
     ? effectiveEnd && effectiveEnd !== start
-      ? `${formatDateSk(start)} – ${formatDateSk(effectiveEnd)} (${inclusiveDayCount(start, effectiveEnd)} dní)`
-      : `${formatDateSk(start)} (1 deň)`
-    : "Ťuknite na prvý deň";
+      ? `${formatDateCs(start)} – ${formatDateCs(effectiveEnd)} (${pocetDni(inclusiveDayCount(start, effectiveEnd))})`
+      : `${formatDateCs(start)} (${pocetDni(1)})`
+    : T.tuknetePrvni;
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -164,10 +164,10 @@ export function RangeCalendarModal({
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.help}>
             {fixedStart
-              ? "Začiatok sa nemení — ťuknite na nový posledný deň"
+              ? T.napovedaPevnyZacatek
               : start && !end
-                ? "Ťuknite na posledný deň (alebo potvrďte 1 deň)"
-                : "Ťuknite na prvý a potom na posledný deň"}
+                ? T.napovedaPosledni
+                : T.napovedaPrvniAPosledni}
           </Text>
 
           <View style={styles.navRow}>
@@ -238,9 +238,7 @@ export function RangeCalendarModal({
           </View>
 
           {busyDates && busyDates.size > 0 ? (
-            <Text style={styles.legend}>
-              Červené dni = vozidlo je už rezervované
-            </Text>
+            <Text style={styles.legend}>{T.legenda}</Text>
           ) : null}
 
           <Text style={styles.summary}>{summary}</Text>
@@ -248,7 +246,7 @@ export function RangeCalendarModal({
 
           <View style={styles.btnRow}>
             <Pressable style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelText}>Zrušiť</Text>
+              <Text style={styles.cancelText}>{cs.spolecne.zrusit}</Text>
             </Pressable>
             <Pressable
               style={[styles.okBtn, !start && styles.okBtnDisabled]}
@@ -259,7 +257,7 @@ export function RangeCalendarModal({
                 onClose();
               }}
             >
-              <Text style={styles.okText}>Potvrdiť</Text>
+              <Text style={styles.okText}>{cs.spolecne.potvrdit}</Text>
             </Pressable>
           </View>
         </Pressable>

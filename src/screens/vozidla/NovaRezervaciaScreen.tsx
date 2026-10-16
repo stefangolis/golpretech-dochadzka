@@ -1,12 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,12 +14,13 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../../auth/AuthContext";
 import { BottomSheetModal } from "../../components/BottomSheetModal";
+import { FormScrollView } from "../../components/FormScrollView";
 import { RangeCalendarModal } from "../../components/RangeCalendarModal";
 import { WorkItemPickerModal } from "../../components/WorkItemPickerModal";
+import { cs } from "../../i18n/cs";
 import {
   useCreateRezervacia,
   useRezervacie,
@@ -34,13 +32,13 @@ import type { WorkItem } from "../../types/workItems";
 import type { Vozidlo } from "../../api/vozidlaFields";
 import {
   daysAheadDateOnly,
-  formatDateSk,
   inclusiveDayCount,
   todayDateOnly,
 } from "../../utils/dates";
 import {
   dostupnostVozidla,
   formatRezervaciaObdobie,
+  formatTerminRezervace,
   menoZRezervacie,
   najdiKolizie,
   obsadeneDniVozidla,
@@ -51,22 +49,11 @@ import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
 const MAX_DAYS = REZERVACIA_MAX_DAYS;
+const T = cs.vozidla;
+const E = cs.vozidla.chyby;
 
 export function NovaRezervaciaScreen() {
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
-  const cielFocusedRef = useRef(false);
-  const keyboardHeight = useKeyboardHeight();
-
-  // Po zobrazení klávesnice posuň na pole Cieľ cesty.
-  useEffect(() => {
-    if (keyboardHeight <= 0 || !cielFocusedRef.current) return;
-    const t = setTimeout(
-      () => scrollRef.current?.scrollToEnd({ animated: true }),
-      50,
-    );
-    return () => clearTimeout(t);
-  }, [keyboardHeight]);
   const navigation =
     useNavigation<NativeStackNavigationProp<VozidlaStackParamList>>();
   const { getValidAccessToken } = useAuth();
@@ -123,27 +110,27 @@ export function NovaRezervaciaScreen() {
     setSuccessMsg(null);
 
     if (!selectedVozidlo) {
-      setFormError("Vyberte vozidlo.");
+      setFormError(E.vyberteVozidlo);
       return;
     }
     if (od < today) {
-      setFormError("Dátum Od nemôže byť v minulosti.");
+      setFormError(E.odVMinulosti);
       return;
     }
     if (doDate < od) {
-      setFormError("Dátum Do musí byť rovný alebo neskôr ako Od.");
+      setFormError(E.doPredOdem);
       return;
     }
     if (inclusiveDayCount(od, doDate) > MAX_DAYS) {
-      setFormError(`Maximálna dĺžka rezervácie je ${MAX_DAYS} dní.`);
+      setFormError(E.maxDelka(MAX_DAYS));
       return;
     }
     if (!selectedWork) {
-      setFormError("Vyberte zákazku alebo objednávku.");
+      setFormError(E.vyberteZakazku);
       return;
     }
     if (!cielCesty.trim()) {
-      setFormError("Cieľ cesty je povinný.");
+      setFormError(E.cilPovinny);
       return;
     }
 
@@ -163,7 +150,7 @@ export function NovaRezervaciaScreen() {
       if (kolizie.length > 0) {
         const k = kolizie[0]!;
         setFormError(
-          `Kolízia s rezerváciou ${menoZRezervacie(k)}, ${formatRezervaciaObdobie(k.od, k.do)}.`,
+          E.kolize(menoZRezervacie(k), formatRezervaciaObdobie(k.od, k.do)),
         );
         return;
       }
@@ -190,10 +177,10 @@ export function NovaRezervaciaScreen() {
       if (late.length > 0) {
         const k = late[0]!;
         setWarning(
-          `Pozor: kolízia s rezerváciou ${menoZRezervacie(k)}, ${formatRezervaciaObdobie(k.od, k.do)} - dohodnite sa, prosím`,
+          E.kolizePozde(menoZRezervacie(k), formatRezervaciaObdobie(k.od, k.do)),
         );
       } else {
-        setSuccessMsg("Rezervácia uložená.");
+        setSuccessMsg(T.rezervaceUlozena);
       }
 
       setCielCesty("");
@@ -206,31 +193,24 @@ export function NovaRezervaciaScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
-      >
-        <ScrollView
-          ref={scrollRef}
+        <FormScrollView
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: insets.bottom + spacing.xl * 2 + keyboardHeight },
+            { paddingBottom: insets.bottom + spacing.xl * 2 },
           ]}
-          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.topBar}>
             <Pressable
               style={styles.backBtn}
               onPress={() => navigation.goBack()}
             >
-              <Text style={styles.backBtnText}>← Späť</Text>
+              <Text style={styles.backBtnText}>{cs.spolecne.zpet}</Text>
             </Pressable>
-            <Text style={styles.topBarTitle}>Nová rezervácia</Text>
+            <Text style={styles.topBarTitle}>{T.novaRezervace}</Text>
             <View style={styles.backBtnPlaceholder} />
           </View>
 
-          <Text style={styles.label}>1. Vozidlo *</Text>
+          <Text style={styles.label}>{T.vozidloPovinno}</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setVozidloOpen(true)}
@@ -242,23 +222,21 @@ export function NovaRezervaciaScreen() {
             >
               {selectedVozidlo
                 ? `${selectedVozidlo.nazov} · ${selectedVozidlo.spz}`
-                : "Vyberte vozidlo…"}
+                : T.vyberteVozidlo}
             </Text>
           </Pressable>
 
-          <Text style={styles.label}>2. Termín (od – do) *</Text>
+          <Text style={styles.label}>{T.termin}</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setTerminOpen(true)}
           >
             <Text style={styles.selectValue}>
-              {od === doDate
-                ? `${formatDateSk(od)} (1 deň)`
-                : `${formatDateSk(od)} – ${formatDateSk(doDate)} (${inclusiveDayCount(od, doDate)} dní)`}
+              {formatTerminRezervace(od, doDate)}
             </Text>
           </Pressable>
 
-          <Text style={styles.label}>3. Zákazka *</Text>
+          <Text style={styles.label}>{T.zakazkaPovinna}</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setWorkOpen(true)}
@@ -274,7 +252,7 @@ export function NovaRezervaciaScreen() {
               </View>
             ) : (
               <Text style={styles.selectPlaceholder}>
-                Vyberte zákazku alebo objednávku…
+                {cs.odvod.vyberteZakazku}
               </Text>
             )}
           </Pressable>
@@ -282,23 +260,17 @@ export function NovaRezervaciaScreen() {
             <Text style={styles.error}>
               {workCatalogQuery.error instanceof Error
                 ? workCatalogQuery.error.message
-                : "Nepodarilo sa načítať zákazky."}
+                : T.nacteniZakazek}
             </Text>
           ) : null}
 
-          <Text style={styles.label}>4. Cieľ cesty *</Text>
+          <Text style={styles.label}>{T.cilCesty}</Text>
           <TextInput
             style={styles.input}
             value={cielCesty}
             onChangeText={setCielCesty}
-            placeholder="napr. JUTA a.s., Dvůr Králové"
+            placeholder={T.cilPlaceholder}
             placeholderTextColor={colors.muted}
-            onFocus={() => {
-              cielFocusedRef.current = true;
-            }}
-            onBlur={() => {
-              cielFocusedRef.current = false;
-            }}
           />
 
           {formError ? (
@@ -327,15 +299,14 @@ export function NovaRezervaciaScreen() {
             {createMutation.isPending ? (
               <ActivityIndicator color={colors.primaryText} />
             ) : (
-              <Text style={styles.submitText}>Uložiť rezerváciu</Text>
+              <Text style={styles.submitText}>{T.ulozitRezervaci}</Text>
             )}
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
 
       <BottomSheetModal
         visible={vozidloOpen}
-        title="Vozidlo"
+        title={T.vozidlo}
         onClose={() => setVozidloOpen(false)}
         tall
       >
@@ -347,7 +318,7 @@ export function NovaRezervaciaScreen() {
             keyExtractor={(item) => item.id}
             style={styles.modalList}
             ListEmptyComponent={
-              <Text style={styles.muted}>Žiadne aktívne vozidlá.</Text>
+              <Text style={styles.muted}>{T.zadnaAktivniVozidla}</Text>
             }
             renderItem={({ item }) => (
               <Pressable

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,7 +15,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Rezervacia } from "../../api/rezervacieFields";
 import type { Vozidlo } from "../../api/vozidlaFields";
 import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { RangeCalendarModal } from "../../components/RangeCalendarModal";
+import { cs } from "../../i18n/cs";
 import { useAuth } from "../../auth/AuthContext";
 import {
   useMojeRezervacie,
@@ -40,6 +41,7 @@ import {
   jeAktivnaRezervacia,
   jeNeodovzdanaPoTermine,
   menoZRezervacie,
+  mozeZrusitRezervaciu,
   najdiKolizie,
   obsadeneDniVozidla,
   REZERVACIA_MAX_DAYS,
@@ -49,6 +51,8 @@ import { synchronizovatNotifikacieRezervacii } from "../../utils/rezervacieNotif
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
 type Nav = NativeStackNavigationProp<RootStackParamList & VozidlaStackParamList>;
+
+const T = cs.vozidla;
 
 export function VozidlaHomeScreen() {
   const navigation = useNavigation<Nav>();
@@ -125,24 +129,23 @@ export function VozidlaHomeScreen() {
     void synchronizovatNotifikacieRezervacii(mojeQuery.data);
   }, [mojeQuery.data]);
 
-  const onZrusit = (r: Rezervacia) => {
-    Alert.alert(
-      "Zrušiť rezerváciu?",
-      `${nazovVozidla(r.vozidloSpz)} · ${formatRezervaciaObdobie(r.od, r.do)}`,
-      [
-        { text: "Nie", style: "cancel" },
-        {
-          text: "Zrušiť rezerváciu",
-          style: "destructive",
-          onPress: () => {
-            setActionError(null);
-            void zrusit.mutateAsync(r.id).catch((err) => {
-              setActionError(err instanceof Error ? err.message : String(err));
-            });
-          },
-        },
-      ],
-    );
+  const [zrusitTarget, setZrusitTarget] = useState<Rezervacia | null>(null);
+  const [zrusitError, setZrusitError] = useState<string | null>(null);
+
+  const otvorZrusenie = (r: Rezervacia) => {
+    zrusit.reset();
+    setZrusitError(null);
+    setZrusitTarget(r);
+  };
+
+  const potvrdZrusenie = () => {
+    const r = zrusitTarget;
+    if (!r) return;
+    setZrusitError(null);
+    zrusit.mutate(r.id, {
+      onSuccess: () => setZrusitTarget(null),
+      onError: (err) => setZrusitError(err instanceof Error ? err.message : String(err)),
+    });
   };
 
   /** Zapíše nový koniec; Od sa nemení. */
@@ -150,7 +153,7 @@ export function VozidlaHomeScreen() {
     if (noveDo === r.do) return;
     const minDo = r.od > today ? r.od : today;
     if (noveDo < minDo) {
-      setActionError("Koniec rezervácie nemôže byť pred začiatkom ani v minulosti.");
+      setActionError(T.chyby.konecPredZacatkem);
       return;
     }
     if (inclusiveDayCount(r.od, noveDo) > REZERVACIA_MAX_DAYS) {
@@ -211,9 +214,9 @@ export function VozidlaHomeScreen() {
             style={styles.backBtn}
             onPress={() => navigation.navigate("Hub")}
           >
-            <Text style={styles.backBtnText}>← Hub</Text>
+            <Text style={styles.backBtnText}>{cs.spolecne.zpetHub}</Text>
           </Pressable>
-          <Text style={styles.topBarTitle}>Vozidlá</Text>
+          <Text style={styles.topBarTitle}>{T.titulek}</Text>
           <View style={styles.backBtnPlaceholder} />
         </View>
 
@@ -228,11 +231,11 @@ export function VozidlaHomeScreen() {
           </Text>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Moje rezervácie</Text>
+        <Text style={styles.sectionTitle}>{T.mojeRezervace}</Text>
         {mojeQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} />
         ) : mojeAktivne.length === 0 ? (
-          <Text style={styles.muted}>Žiadna aktívna rezervácia.</Text>
+          <Text style={styles.muted}>{T.zadnaAktivni}</Text>
         ) : (
           mojeAktivne.map((r) => {
             const nezacala = r.stav === "Rezervovane" && r.od > today;
@@ -245,47 +248,31 @@ export function VozidlaHomeScreen() {
                 </Text>
                 <Text style={styles.cardSub}>
                   {formatRezervaciaObdobie(r.od, r.do)}
-                  {prevzata ? " · Prevzaté" : ""}
+                  {prevzata ? T.prevzate : ""}
                 </Text>
                 {jeNeodovzdanaPoTermine(r, today) ? (
-                  <Text style={styles.overdue}>
-                    Neodovzdané po termíne — odovzdajte vozidlo alebo predĺžte
-                    rezerváciu.
-                  </Text>
+                  <Text style={styles.overdue}>{T.neodovzdanoPoTermine}</Text>
                 ) : null}
                 {r.zakazkaId ? (
-                  <Text style={styles.cardMeta}>Zákazka: {r.zakazkaId}</Text>
+                  <Text style={styles.cardMeta}>{T.zakazka(r.zakazkaId)}</Text>
                 ) : null}
                 {r.cielCesty ? (
-                  <Text style={styles.cardMeta}>Cieľ: {r.cielCesty}</Text>
+                  <Text style={styles.cardMeta}>{T.cil(r.cielCesty)}</Text>
                 ) : null}
 
                 <View style={styles.actions}>
                   {nezacala ? (
-                    <>
-                      <Pressable
-                        style={styles.actionBtn}
-                        onPress={() =>
-                          navigation.navigate("UpravitRezervaciu", {
-                            rezervacia: r,
-                          })
-                        }
-                        disabled={actionPending}
-                      >
-                        <Text style={styles.actionBtnText}>Zmeniť</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.actionBtn, styles.actionDanger]}
-                        onPress={() => onZrusit(r)}
-                        disabled={actionPending}
-                      >
-                        <Text
-                          style={[styles.actionBtnText, styles.actionDangerText]}
-                        >
-                          Zrušiť
-                        </Text>
-                      </Pressable>
-                    </>
+                    <Pressable
+                      style={styles.actionBtn}
+                      onPress={() =>
+                        navigation.navigate("UpravitRezervaciu", {
+                          rezervacia: r,
+                        })
+                      }
+                      disabled={actionPending}
+                    >
+                      <Text style={styles.actionBtnText}>{T.zmenit}</Text>
+                    </Pressable>
                   ) : null}
                   {naPrevzatie ? (
                     <Pressable
@@ -298,7 +285,7 @@ export function VozidlaHomeScreen() {
                       <Text
                         style={[styles.actionBtnText, styles.actionPrimaryText]}
                       >
-                        Prevziať
+                        {T.prevzitTlacitko}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -313,7 +300,7 @@ export function VozidlaHomeScreen() {
                       <Text
                         style={[styles.actionBtnText, styles.actionPrimaryText]}
                       >
-                        Odovzdať
+                        {T.odevzdatTlacitko}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -323,7 +310,18 @@ export function VozidlaHomeScreen() {
                       onPress={() => setEndTarget(r)}
                       disabled={actionPending}
                     >
-                      <Text style={styles.actionBtnText}>Zmeniť koniec</Text>
+                      <Text style={styles.actionBtnText}>{T.zmenitKonec}</Text>
+                    </Pressable>
+                  ) : null}
+                  {mozeZrusitRezervaciu(r) ? (
+                    <Pressable
+                      style={[styles.actionBtn, styles.actionDanger]}
+                      onPress={() => otvorZrusenie(r)}
+                      disabled={actionPending}
+                    >
+                      <Text style={[styles.actionBtnText, styles.actionDangerText]}>
+                        {T.zrusitRezervaci}
+                      </Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -333,9 +331,9 @@ export function VozidlaHomeScreen() {
         )}
 
         <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
-          Vozidlá
+          {T.titulek}
         </Text>
-        <Text style={styles.sectionHint}>Dostupnosť na 14 dní</Text>
+        <Text style={styles.sectionHint}>{T.dostupnost14}</Text>
 
         {vozidlaQuery.isError ? (
           <View style={styles.errorBox}>
@@ -348,13 +346,13 @@ export function VozidlaHomeScreen() {
               style={styles.retryBtn}
               onPress={() => void vozidlaQuery.refetch()}
             >
-              <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+              <Text style={styles.retryBtnText}>{cs.spolecne.zkusitZnovu}</Text>
             </Pressable>
           </View>
         ) : vozidlaQuery.isLoading || rezervacieQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} />
         ) : (vozidlaQuery.data ?? []).length === 0 ? (
-          <Text style={styles.muted}>Žiadne aktívne vozidlá.</Text>
+          <Text style={styles.muted}>{T.zadnaAktivniVozidla}</Text>
         ) : (
           (vozidlaQuery.data ?? []).map((v) => {
             const info = dostupnostVozidla(
@@ -374,9 +372,9 @@ export function VozidlaHomeScreen() {
                   <Text key={u.rezervaciaId} style={styles.usekLine}>
                     {formatDateShort(u.od)}–{formatDateShort(u.do)} · {u.meno}
                     {u.poTermine
-                      ? " (neodovzdané)"
+                      ? T.neodovzdane
                       : u.stav === "Prevzate"
-                        ? " (prevzaté)"
+                        ? T.prevzateZavorka
                         : ""}
                   </Text>
                 ))}
@@ -389,7 +387,7 @@ export function VozidlaHomeScreen() {
           style={styles.primaryBtn}
           onPress={() => navigation.navigate("NovaRezervacia")}
         >
-          <Text style={styles.primaryBtnText}>Nová rezervácia</Text>
+          <Text style={styles.primaryBtnText}>{T.novaRezervace}</Text>
         </Pressable>
       </ScrollView>
 
@@ -402,12 +400,28 @@ export function VozidlaHomeScreen() {
         maxDays={REZERVACIA_MAX_DAYS}
         busyDates={endBusyDates}
         fixedStart
-        title="Zmeniť koniec rezervácie"
+        title={T.zmenitKonecTitulek}
         onConfirm={(_od, noveDo) => {
           const r = endTarget;
           if (r) void ulozitKoniec(r, noveDo);
         }}
         onClose={() => setEndTarget(null)}
+      />
+
+      <ConfirmDialog
+        visible={zrusitTarget != null}
+        title={T.zrusitRezervaciOtazka}
+        message={
+          zrusitTarget
+            ? `${nazovVozidla(zrusitTarget.vozidloSpz)} · ${formatRezervaciaObdobie(zrusitTarget.od, zrusitTarget.do)}`
+            : undefined
+        }
+        confirmLabel={T.zrusitRezervaci}
+        destructive
+        busy={zrusit.isPending}
+        error={zrusitError}
+        onConfirm={potvrdZrusenie}
+        onClose={() => setZrusitTarget(null)}
       />
     </SafeAreaView>
   );

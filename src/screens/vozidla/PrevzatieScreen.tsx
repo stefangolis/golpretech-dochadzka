@@ -2,10 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -18,8 +15,10 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { PREVZATIE_STAV } from "../../api/rezervacieFields";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { FormScrollView } from "../../components/FormScrollView";
 import { FotkyPicker } from "../../components/FotkyPicker";
-import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
+import { cs } from "../../i18n/cs";
 import {
   usePoslednyOdovzdanyKm,
   usePrevziatRezervaciu,
@@ -27,19 +26,19 @@ import {
 } from "../../hooks/useVozidla";
 import { colors, spacing } from "../../theme";
 import { formatRezervaciaObdobie } from "../../utils/rezervacie";
-import { krokStyles as styles, parseKm, potvrditAsync, VolbaDvoch } from "./krokUi";
+import { krokStyles as styles, parseKm, VolbaDvoch } from "./krokUi";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
 type PrevzatieStav = (typeof PREVZATIE_STAV)[keyof typeof PREVZATIE_STAV];
 
+const T = cs.vozidla.prevzeti;
 const STAV_OPTIONS = [
-  { value: PREVZATIE_STAV.bezVyhrad, label: "Bez výhrad" },
-  { value: PREVZATIE_STAV.sVyhradou, label: "S výhradou" },
+  { value: PREVZATIE_STAV.bezVyhrad, label: T.bezVyhrad },
+  { value: PREVZATIE_STAV.sVyhradou, label: T.sVyhradou },
 ] as const;
 
 export function PrevzatieScreen() {
   const insets = useSafeAreaInsets();
-  const keyboardHeight = useKeyboardHeight();
   const navigation =
     useNavigation<NativeStackNavigationProp<VozidlaStackParamList>>();
   const route = useRoute<RouteProp<VozidlaStackParamList, "Prevzatie">>();
@@ -68,6 +67,10 @@ export function PrevzatieScreen() {
   const [fotky, setFotky] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const [kmConfirm, setKmConfirm] = useState<{
+    kmNum: number;
+    znamy: number;
+  } | null>(null);
 
   useEffect(() => {
     if (kmTouched || poslednyZnamyKm == null) return;
@@ -81,29 +84,30 @@ export function PrevzatieScreen() {
     setError(null);
     const kmNum = parseKm(km);
     if (kmNum == null) {
-      setError("Zadajte stav tachometra (celé číslo v km).");
+      setError(T.zadajteKm);
       return;
     }
     if (!stav) {
-      setError("Vyberte stav vozidla.");
+      setError(T.vyberteStav);
       return;
     }
     if (sVyhradou && !vyhrada.trim()) {
-      setError("Popíšte výhradu.");
+      setError(T.popisVyhradu);
       return;
     }
     if (sVyhradou && fotky.length === 0) {
-      setError("Pri výhrade pridajte aspoň 1 fotku.");
+      setError(T.pridejteFotku);
       return;
     }
     if (poslednyZnamyKm != null && kmNum < poslednyZnamyKm) {
-      const ok = await potvrditAsync(
-        "Stav tachometra",
-        `Stav je nižší ako posledný známy (${poslednyZnamyKm} km). Skontrolujte.`,
-      );
-      if (!ok) return;
+      setKmConfirm({ kmNum, znamy: poslednyZnamyKm });
+      return;
     }
+    await dokoncPrevzatie(kmNum);
+  };
 
+  const dokoncPrevzatie = async (kmNum: number) => {
+    if (!stav) return;
     try {
       await prevziat.mutateAsync({
         id: rezervacia.id,
@@ -113,7 +117,8 @@ export function PrevzatieScreen() {
           vyhrada: sVyhradou ? vyhrada : "",
         },
         fotky: sVyhradou ? fotky : [],
-        onProgress: (done, total) => setProgress(`Nahrávam ${done}/${total}…`),
+        onProgress: (done, total) =>
+          setProgress(cs.vozidla.fotky.nahravam(done, total)),
       });
       navigation.goBack();
     } catch (err) {
@@ -125,17 +130,11 @@ export function PrevzatieScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
-      >
-        <ScrollView
+        <FormScrollView
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: insets.bottom + spacing.xl * 2 + keyboardHeight },
+            { paddingBottom: insets.bottom + spacing.xl * 2 },
           ]}
-          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.topBar}>
             <Pressable
@@ -143,9 +142,9 @@ export function PrevzatieScreen() {
               onPress={() => navigation.goBack()}
               disabled={pending}
             >
-              <Text style={styles.backBtnText}>← Späť</Text>
+              <Text style={styles.backBtnText}>{cs.spolecne.zpet}</Text>
             </Pressable>
-            <Text style={styles.topBarTitle}>Prevzatie vozidla</Text>
+            <Text style={styles.topBarTitle}>{T.titulek}</Text>
             <View style={styles.backBtnPlaceholder} />
           </View>
 
@@ -159,7 +158,7 @@ export function PrevzatieScreen() {
             </Text>
           </View>
 
-          <Text style={styles.label}>Stav tachometra (km) *</Text>
+          <Text style={styles.label}>{T.tachometr}</Text>
           <TextInput
             style={styles.input}
             value={km}
@@ -168,17 +167,17 @@ export function PrevzatieScreen() {
               setKm(t);
             }}
             keyboardType="number-pad"
-            placeholder={kmLoading ? "Načítavam posledný stav…" : "napr. 125430"}
+            placeholder={kmLoading ? T.nacitamKm : T.placeholderKm}
             placeholderTextColor={colors.muted}
             editable={!pending}
           />
           {poslednyZnamyKm != null ? (
             <Text style={styles.muted}>
-              Posledný známy stav: {poslednyZnamyKm} km
+              {T.posledniZnamy(poslednyZnamyKm)}
             </Text>
           ) : null}
 
-          <Text style={styles.label}>Stav vozidla *</Text>
+          <Text style={styles.label}>{T.stavVozidla}</Text>
           <VolbaDvoch
             value={stav}
             options={STAV_OPTIONS}
@@ -188,17 +187,17 @@ export function PrevzatieScreen() {
 
           {sVyhradou ? (
             <>
-              <Text style={styles.label}>Výhrada *</Text>
+              <Text style={styles.label}>{T.vyhrada}</Text>
               <TextInput
                 style={[styles.input, styles.multiline]}
                 value={vyhrada}
                 onChangeText={setVyhrada}
-                placeholder="napr. škrabanec na zadnom nárazníku"
+                placeholder={T.vyhradaPlaceholder}
                 placeholderTextColor={colors.muted}
                 multiline
                 editable={!pending}
               />
-              <Text style={styles.label}>Fotky (1–5) *</Text>
+              <Text style={styles.label}>{T.fotky}</Text>
               <FotkyPicker
                 fotky={fotky}
                 onChange={setFotky}
@@ -226,12 +225,24 @@ export function PrevzatieScreen() {
               <ActivityIndicator color={colors.primaryText} />
             ) : (
               <Text style={styles.submitText}>
-                {prevziat.isError ? "Skúsiť znovu" : "Prevziať vozidlo"}
+                {prevziat.isError ? cs.spolecne.zkusitZnovu : T.prevzitVozidlo}
               </Text>
             )}
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      <ConfirmDialog
+        visible={kmConfirm != null}
+        title={T.tachometrTitulek}
+        message={kmConfirm ? T.nizsiNezZnamy(kmConfirm.znamy) : undefined}
+        confirmLabel={cs.spolecne.pokracovat}
+        cancelLabel={cs.spolecne.opravit}
+        onConfirm={() => {
+          const kmNum = kmConfirm?.kmNum;
+          setKmConfirm(null);
+          if (kmNum != null) void dokoncPrevzatie(kmNum);
+        }}
+        onClose={() => setKmConfirm(null)}
+      />
     </SafeAreaView>
   );
 }

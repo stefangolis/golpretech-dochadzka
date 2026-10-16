@@ -1,11 +1,14 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import type { TimeEntry } from "../types/workItems";
+import { zoradZapisy } from "../utils/odvodZapisy";
 import {
   myEntriesMinDateOnly,
   todayDateOnly,
 } from "../utils/dates";
 import {
   getObjednavkaColumnMap,
+  objednavkaSelectFields,
   parseObjednavkaRow,
 } from "./objednavkaFields";
 import {
@@ -188,12 +191,7 @@ export async function fetchWorkCatalog(
     getObjednavkaColumnMap(accessToken),
   ]);
 
-  const objSelect = [
-    objCols.title,
-    objCols.zakazkaId,
-    objCols.zakaznik,
-    objCols.stav,
-  ];
+  const objSelect = objednavkaSelectFields(objCols);
 
   const [zakazkyRows, objRows] = await Promise.all([
     fetchActiveZakazkyRows(accessToken, zakCols),
@@ -211,7 +209,7 @@ export async function fetchWorkCatalog(
   }
 
   const objednavky = objRows.map((row) =>
-    parseObjednavkaRow(row.fields, objCols),
+    parseObjednavkaRow(row.fields, objCols, row.id),
   );
 
   const pickerItems = buildPickerWorkItems(zakazky, objednavky);
@@ -255,6 +253,7 @@ export async function fetchMyTimeEntries(
     fieldMap.rework,
     fieldMap.poznamka,
     fieldMap.casZapisu,
+    "Created",
   ].filter((c): c is string => !!c);
 
   const filter = [
@@ -292,14 +291,11 @@ export async function fetchMyTimeEntries(
       rework: parseStoredRework(f.rework),
       poznamka: asString(f.poznamka),
       casZapisu: asString(f.casZapisu),
+      created: asString(row.fields.Created),
     });
   }
 
-  entries.sort((a, b) => {
-    if (a.datum !== b.datum) return b.datum.localeCompare(a.datum);
-    return b.casZapisu.localeCompare(a.casZapisu);
-  });
-  return entries;
+  return zoradZapisy(entries);
 }
 
 export async function createTimeEntry(
@@ -379,7 +375,7 @@ export async function createTimeEntry(
       return;
     }
     throw new Error(
-      `${msg}\nMapovanie polí: ${formatFieldMapSummary(fieldMap)}`,
+      cs.sharepoint.mapovaniPoli(msg, formatFieldMapSummary(fieldMap)),
     );
   }
 }
@@ -445,7 +441,7 @@ export async function updateTimeEntry(
       return;
     }
     throw new Error(
-      `${msg}\nMapovanie polí: ${formatFieldMapSummary(fieldMap)}`,
+      cs.sharepoint.mapovaniPoli(msg, formatFieldMapSummary(fieldMap)),
     );
   }
 }

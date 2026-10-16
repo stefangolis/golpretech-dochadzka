@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import {
   graphFetch,
   parseGraphErrorBody,
@@ -333,8 +334,11 @@ async function ensureFieldCache(accessToken: string): Promise<void> {
       .map((c) => `${c.displayName} (${c.name})`)
       .join(", ");
     throw new Error(
-      `V zozname Casove_zaznamy chýbajú stĺpce: ${missing.join(", ")}. ` +
-        `Dostupné stĺpce: ${available || "—"}`,
+      cs.sharepoint.chybiSloupecDostupne(
+        "Casove_zaznamy",
+        missing.join(", "),
+        available || "—",
+      ),
     );
   }
 
@@ -375,8 +379,11 @@ export async function validateCreatePayload(
     .join(", ");
 
   throw new Error(
-    `Zoznam „${listTitle}“ nepozná polia: ${unknown.join(", ")}. ` +
-      `Graph API interné názvy stĺpcov: ${available || "—"}`,
+    cs.sharepoint.neznamaPole(
+      listTitle,
+      unknown.join(", "),
+      available || "—",
+    ),
   );
 }
 

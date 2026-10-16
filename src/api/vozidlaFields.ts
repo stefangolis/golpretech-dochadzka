@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import {
   fetchListColumns,
   fieldString,
@@ -44,8 +45,7 @@ function requireColumn(
   const resolved = resolveListColumn(columns, preferredNames, displayHints);
   if (!resolved) {
     throw new Error(
-      `V zozname Vozidla chýba stĺpec ${label}. ` +
-        `Dostupné stĺpce: ${columnSummary(columns)}`,
+      cs.sharepoint.chybiSloupecDostupne("Vozidla", label, columnSummary(columns)),
     );
   }
   return resolved;
@@ -56,9 +56,7 @@ export async function getVozidloColumnMap(
 ): Promise<VozidloColumnMap> {
   if (cached) return cached;
   if (!env.sharePointListVozidlaId) {
-    throw new Error(
-      "Chýba SHAREPOINT_LIST_VOZIDLA_ID v .env (reštartujte Expo po úprave).",
-    );
+    throw new Error(cs.vozidla.api.chybiEnv);
   }
 
   const columns = await fetchListColumns(

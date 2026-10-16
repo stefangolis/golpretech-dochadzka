@@ -2,10 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -18,20 +15,23 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ODOVZDANIE_STAV } from "../../api/rezervacieFields";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { FormScrollView } from "../../components/FormScrollView";
 import { FotkyPicker } from "../../components/FotkyPicker";
-import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
+import { cs } from "../../i18n/cs";
 import { useOdovzdatRezervaciu, useVozidla } from "../../hooks/useVozidla";
 import { colors, spacing } from "../../theme";
 import { formatDateShort, todayDateOnly } from "../../utils/dates";
 import { formatRezervaciaObdobie } from "../../utils/rezervacie";
-import { krokStyles as styles, parseKm, potvrditAsync, VolbaDvoch } from "./krokUi";
+import { krokStyles as styles, parseKm, VolbaDvoch } from "./krokUi";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
 type OdovzdanieStav = (typeof ODOVZDANIE_STAV)[keyof typeof ODOVZDANIE_STAV];
 
+const T = cs.vozidla.odevzdani;
 const STAV_OPTIONS = [
-  { value: ODOVZDANIE_STAV.bezPoskodenia, label: "Bez poškodenia" },
-  { value: ODOVZDANIE_STAV.sPoskodenim, label: "S poškodením" },
+  { value: ODOVZDANIE_STAV.bezPoskodenia, label: T.bezPoskozeni },
+  { value: ODOVZDANIE_STAV.sPoskodenim, label: T.sPoskozenim },
 ] as const;
 
 /** Nad túto hodnotu najazdených km sa zobrazí varovanie. */
@@ -39,7 +39,6 @@ const VAROVANIE_KM = 2000;
 
 export function OdovzdanieScreen() {
   const insets = useSafeAreaInsets();
-  const keyboardHeight = useKeyboardHeight();
   const navigation =
     useNavigation<NativeStackNavigationProp<VozidlaStackParamList>>();
   const route = useRoute<RouteProp<VozidlaStackParamList, "Odovzdanie">>();
@@ -64,6 +63,10 @@ export function OdovzdanieScreen() {
   const [fotky, setFotky] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const [kmConfirm, setKmConfirm] = useState<{
+    kmNum: number;
+    najazdene: number;
+  } | null>(null);
 
   const sPoskodenim = stav === ODOVZDANIE_STAV.sPoskodenim;
   const pending = odovzdat.isPending;
@@ -73,36 +76,36 @@ export function OdovzdanieScreen() {
     setError(null);
     const kmNum = parseKm(km);
     if (kmNum == null) {
-      setError("Zadajte stav tachometra (celé číslo v km).");
+      setError(cs.vozidla.prevzeti.zadajteKm);
       return;
     }
     if (prevzatieKm != null && kmNum < prevzatieKm) {
-      setError(
-        `Stav tachometra nemôže byť nižší ako pri prevzatí (${prevzatieKm} km).`,
-      );
+      setError(T.nizsiNezPrevzeti(prevzatieKm));
       return;
     }
     if (!stav) {
-      setError("Vyberte stav vozidla.");
+      setError(cs.vozidla.prevzeti.vyberteStav);
       return;
     }
     if (sPoskodenim && !poskodenie.trim()) {
-      setError("Popíšte poškodenie.");
+      setError(T.popisPoskozeniChyba);
       return;
     }
     if (sPoskodenim && fotky.length === 0) {
-      setError("Pri poškodení pridajte aspoň 1 fotku.");
+      setError(T.pridejteFotku);
       return;
     }
     const najazdeneKm = prevzatieKm != null ? kmNum - prevzatieKm : null;
     if (najazdeneKm != null && najazdeneKm > VAROVANIE_KM) {
-      const ok = await potvrditAsync(
-        "Stav tachometra",
-        `Najazdených ${najazdeneKm} km (viac ako ${VAROVANIE_KM} km). Skontrolujte stav tachometra.`,
-      );
-      if (!ok) return;
+      setKmConfirm({ kmNum, najazdene: najazdeneKm });
+      return;
     }
+    await dokoncOdovzdanie(kmNum);
+  };
 
+  const dokoncOdovzdanie = async (kmNum: number) => {
+    if (!stav) return;
+    const najazdeneKm = prevzatieKm != null ? kmNum - prevzatieKm : null;
     try {
       await odovzdat.mutateAsync({
         id: rezervacia.id,
@@ -117,7 +120,8 @@ export function OdovzdanieScreen() {
           najazdeneKm,
         },
         fotky: sPoskodenim ? fotky : [],
-        onProgress: (done, total) => setProgress(`Nahrávam ${done}/${total}…`),
+        onProgress: (done, total) =>
+          setProgress(cs.vozidla.fotky.nahravam(done, total)),
       });
       navigation.goBack();
     } catch (err) {
@@ -129,17 +133,11 @@ export function OdovzdanieScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
-      >
-        <ScrollView
+        <FormScrollView
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: insets.bottom + spacing.xl * 2 + keyboardHeight },
+            { paddingBottom: insets.bottom + spacing.xl * 2 },
           ]}
-          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.topBar}>
             <Pressable
@@ -147,9 +145,9 @@ export function OdovzdanieScreen() {
               onPress={() => navigation.goBack()}
               disabled={pending}
             >
-              <Text style={styles.backBtnText}>← Späť</Text>
+              <Text style={styles.backBtnText}>{cs.spolecne.zpet}</Text>
             </Pressable>
-            <Text style={styles.topBarTitle}>Odovzdanie vozidla</Text>
+            <Text style={styles.topBarTitle}>{T.titulek}</Text>
             <View style={styles.backBtnPlaceholder} />
           </View>
 
@@ -163,27 +161,26 @@ export function OdovzdanieScreen() {
             </Text>
             {skorsie ? (
               <Text style={styles.muted}>
-                Odovzdávate skôr — rezervácia sa ukončí dnes (pôvodne do{" "}
-                {formatDateShort(rezervacia.do)}).
+                {T.skorsie(formatDateShort(rezervacia.do))}
               </Text>
             ) : null}
           </View>
 
-          <Text style={styles.label}>Stav tachometra (km) *</Text>
+          <Text style={styles.label}>{cs.vozidla.prevzeti.tachometr}</Text>
           <TextInput
             style={styles.input}
             value={km}
             onChangeText={setKm}
             keyboardType="number-pad"
-            placeholder="napr. 125430"
+            placeholder={cs.vozidla.prevzeti.placeholderKm}
             placeholderTextColor={colors.muted}
             editable={!pending}
           />
           {prevzatieKm != null ? (
-            <Text style={styles.muted}>Pri prevzatí: {prevzatieKm} km</Text>
+            <Text style={styles.muted}>{T.priPrevzeti(prevzatieKm)}</Text>
           ) : null}
 
-          <Text style={styles.label}>Stav vozidla *</Text>
+          <Text style={styles.label}>{cs.vozidla.prevzeti.stavVozidla}</Text>
           <VolbaDvoch
             value={stav}
             options={STAV_OPTIONS}
@@ -193,17 +190,17 @@ export function OdovzdanieScreen() {
 
           {sPoskodenim ? (
             <>
-              <Text style={styles.label}>Popis poškodenia *</Text>
+              <Text style={styles.label}>{T.popisPoskozeni}</Text>
               <TextInput
                 style={[styles.input, styles.multiline]}
                 value={poskodenie}
                 onChangeText={setPoskodenie}
-                placeholder="čo a kde je poškodené"
+                placeholder={T.poskozeniPlaceholder}
                 placeholderTextColor={colors.muted}
                 multiline
                 editable={!pending}
               />
-              <Text style={styles.label}>Fotky (1–5) *</Text>
+              <Text style={styles.label}>{cs.vozidla.prevzeti.fotky}</Text>
               <FotkyPicker
                 fotky={fotky}
                 onChange={setFotky}
@@ -231,12 +228,26 @@ export function OdovzdanieScreen() {
               <ActivityIndicator color={colors.primaryText} />
             ) : (
               <Text style={styles.submitText}>
-                {odovzdat.isError ? "Skúsiť znovu" : "Odovzdať vozidlo"}
+                {odovzdat.isError ? cs.spolecne.zkusitZnovu : T.odevzdatVozidlo}
               </Text>
             )}
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      <ConfirmDialog
+        visible={kmConfirm != null}
+        title={cs.vozidla.prevzeti.tachometrTitulek}
+        message={
+          kmConfirm ? T.najeto(kmConfirm.najazdene, VAROVANIE_KM) : undefined
+        }
+        confirmLabel={cs.spolecne.pokracovat}
+        cancelLabel={cs.spolecne.opravit}
+        onConfirm={() => {
+          const kmNum = kmConfirm?.kmNum;
+          setKmConfirm(null);
+          if (kmNum != null) void dokoncOdovzdanie(kmNum);
+        }}
+        onClose={() => setKmConfirm(null)}
+      />
     </SafeAreaView>
   );
 }

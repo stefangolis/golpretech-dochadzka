@@ -1,5 +1,8 @@
 import type { UkonItem } from "../types/ukon";
+import { cs } from "../i18n/cs";
 import { isValidEntryDate, isEditableEntryDate } from "./dates";
+
+const T = cs.odvod.validace;
 
 export type EntrySelection =
   | { kind: "zakazka"; zakazkaId: string; cisloObjednavky: "" }
@@ -31,21 +34,11 @@ export function validateTimeEntry(input: {
   rework: boolean;
   poznamka: string;
 }): string | null {
-  if (!isValidEntryDate(input.dateOnly)) {
-    return "Dátum môže byť len dnes alebo v rámci posledného týždňa (nie v budúcnosti).";
-  }
-  if (!input.selection) {
-    return "Vyberte zákazku alebo objednávku.";
-  }
-  if (parseMinutes(input.minutesRaw) == null) {
-    return "Minúty musia byť celé číslo od 1 do 720.";
-  }
-  if (!isValidUkonSelection(input.ukon, input.validUkonNames)) {
-    return "Vyberte úkon zo zoznamu.";
-  }
-  if (input.rework && !input.poznamka.trim()) {
-    return "Pri Rework je poznámka povinná.";
-  }
+  if (!isValidEntryDate(input.dateOnly)) return T.datumNovy;
+  if (!input.selection) return T.vyberteZakazku;
+  if (parseMinutes(input.minutesRaw) == null) return T.minuty;
+  if (!isValidUkonSelection(input.ukon, input.validUkonNames)) return T.vyberteUkon;
+  if (input.rework && !input.poznamka.trim()) return T.reworkPoznamka;
   return null;
 }
 
@@ -58,21 +51,11 @@ export function validateTimeEntryEdit(input: {
   rework: boolean;
   poznamka: string;
 }): string | null {
-  if (!isEditableEntryDate(input.dateOnly)) {
-    return "Dátum môže byť len v rámci posledného týždňa (nie v budúcnosti).";
-  }
-  if (!input.selection) {
-    return "Vyberte zákazku alebo objednávku.";
-  }
-  if (parseMinutes(input.minutesRaw) == null) {
-    return "Minúty musia byť celé číslo od 1 do 720.";
-  }
-  if (!isValidUkonSelection(input.ukon, input.validUkonNames)) {
-    return "Vyberte úkon zo zoznamu.";
-  }
-  if (input.rework && !input.poznamka.trim()) {
-    return "Pri Rework je poznámka povinná.";
-  }
+  if (!isEditableEntryDate(input.dateOnly)) return T.datumUprava;
+  if (!input.selection) return T.vyberteZakazku;
+  if (parseMinutes(input.minutesRaw) == null) return T.minuty;
+  if (!isValidUkonSelection(input.ukon, input.validUkonNames)) return T.vyberteUkon;
+  if (input.rework && !input.poznamka.trim()) return T.reworkPoznamka;
   return null;
 }
 

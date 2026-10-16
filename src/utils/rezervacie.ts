@@ -3,14 +3,27 @@ import type { Vozidlo } from "../api/vozidlaFields";
 import {
   dayAfterDateOnly,
   daysAheadDateOnly,
+  formatDateCs,
   formatDateShort,
+  inclusiveDayCount,
   parseDateOnly,
   todayDateOnly,
 } from "./dates";
+import { cs } from "../i18n/cs";
+
+const T = cs.vozidla.stav;
 
 /** Rezervované a Prevzaté blokujú vozidlo; Vrátené a Zrušené nikdy. */
 export function jeAktivnaRezervacia(r: Pick<Rezervacia, "stav">): boolean {
   return r.stav === "Rezervovane" || r.stav === "Prevzate";
+}
+
+/**
+ * Zrušiť možno každú neprevzatú rezerváciu (aj keď už začala). Prevzatá sa
+ * nezrušuje, ale odovzdáva.
+ */
+export function mozeZrusitRezervaciu(r: Pick<Rezervacia, "stav">): boolean {
+  return r.stav === "Rezervovane";
 }
 
 /** Prevzaté a neodovzdané po termíne. */
@@ -147,18 +160,18 @@ export function dostupnostVozidla(
 
   const neodovzdana = relevant.find((r) => jeNeodovzdanaPoTermine(r, dnes));
   if (neodovzdana) {
-    return { text: `Neodovzdané (${menoZRezervacie(neodovzdana)})`, useky };
+    return { text: T.neodevzdano(menoZRezervacie(neodovzdana)), useky };
   }
 
   const coveringToday = relevant.find((r) => r.od <= dnes && r.do >= dnes);
   if (coveringToday) {
     return {
-      text: `Obsadené do ${formatDateShort(coveringToday.do)} (${menoZRezervacie(coveringToday)})`,
+      text: T.obsazenoDo(formatDateShort(coveringToday.do), menoZRezervacie(coveringToday)),
       useky,
     };
   }
 
-  return { text: "Voľné dnes", useky };
+  return { text: T.volneDnes, useky };
 }
 
 export function formatRezervaciaObdobie(od: string, doDate: string): string {
@@ -170,6 +183,14 @@ export function formatRezervaciaObdobie(od: string, doDate: string): string {
   return `${left}–${right}`;
 }
 
+/** Termín v kalendáři: „St 14. 10. 2026 (1 den)" / „St 14. 10. 2026 – Pá 16. 10. 2026 (3 dny)". */
+export function formatTerminRezervace(od: string, doDate: string): string {
+  const n = inclusiveDayCount(od, doDate);
+  const odF = formatDateCs(od);
+  if (od === doDate) return cs.vozidla.terminJeden(odF);
+  return cs.vozidla.terminRozsah(odF, formatDateCs(doDate), n);
+}
+
 /** Text stavu dlaždice Vozidlá na Hube. */
 export function hubVozidlaStatusText(
   rezervacie: readonly Rezervacia[],
@@ -177,21 +198,21 @@ export function hubVozidlaStatusText(
   nazovBySpz: (spz: string) => string,
 ): string {
   const aktivne = rezervacie.filter(jeAktivnaRezervacia);
-  if (aktivne.length === 0) return "Žiadna rezervácia";
+  if (aktivne.length === 0) return T.zadnaRezervace;
   const nazov = (r: Rezervacia) =>
     nazovBySpz(r.vozidloSpz) || r.vozidloSpz;
 
   const prevzata = aktivne
     .filter((r) => r.stav === "Prevzate")
     .sort((a, b) => a.do.localeCompare(b.do))[0];
-  if (prevzata) return `Vozidlo ${nazov(prevzata)} – prevzaté, odovzdať`;
+  if (prevzata) return T.prevzatoOdevzdat(nazov(prevzata));
 
   const naPrevzatie = aktivne
     .filter((r) => r.stav === "Rezervovane" && r.od <= dnes)
     .sort((a, b) => a.od.localeCompare(b.od))[0];
-  if (naPrevzatie) return `Vozidlo ${nazov(naPrevzatie)} – prevziať`;
+  if (naPrevzatie) return T.prevzit(nazov(naPrevzatie));
 
   const dalsia = [...aktivne].sort((a, b) => a.od.localeCompare(b.od))[0];
-  if (!dalsia) return "Žiadna rezervácia";
-  return `Rezervované: ${nazov(dalsia)} ${formatRezervaciaObdobie(dalsia.od, dalsia.do)}`;
+  if (!dalsia) return T.zadnaRezervace;
+  return T.rezervovano(nazov(dalsia), formatRezervaciaObdobie(dalsia.od, dalsia.do));
 }

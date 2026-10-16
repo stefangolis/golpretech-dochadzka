@@ -18,6 +18,7 @@ import { buildRezervaciaTitle } from "../api/rezervacieFields";
 import { nahratFotkyRezervacie } from "../api/vozidlaFotky";
 import { fetchVozidla } from "../api/vozidlaFields";
 import { useAuth } from "../auth/AuthContext";
+import { cs } from "../i18n/cs";
 import { todayDateOnly } from "../utils/dates";
 import {
   naplanovatNotifikaciuRezervacie,
@@ -105,7 +106,7 @@ export function useCreateRezervacia() {
       zakazkaId: string;
       cielCesty: string;
     }) => {
-      if (!user?.email) throw new Error("Nie ste prihlásený.");
+      if (!user?.email) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       return createRezervacia(token, {
         ...input,
@@ -149,7 +150,7 @@ export function useUpravitRezervaciu() {
       zakazkaId: string;
       cielCesty: string;
     }) => {
-      if (!user) throw new Error("Nie ste prihlásený.");
+      if (!user) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       const { id, ...rest } = input;
       await upravitRezervaciu(token, id, {
@@ -175,7 +176,7 @@ export function useZmenitKoniecRezervacie() {
       nazovVozidla: string;
       od: string;
     }) => {
-      if (!user) throw new Error("Nie ste prihlásený.");
+      if (!user) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       await zmenitKoniecRezervacie(token, input.id, {
         noveDo: input.noveDo,
@@ -205,7 +206,7 @@ export function usePrevziatRezervaciu() {
       fotky: readonly string[];
       onProgress?: FotkyProgress;
     }) => {
-      if (!user) throw new Error("Nie ste prihlásený.");
+      if (!user) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       await overitPrevzatie(token, input.data);
       await nahratFotkyRezervacie(
@@ -238,7 +239,7 @@ export function useOdovzdatRezervaciu() {
       fotky: readonly string[];
       onProgress?: FotkyProgress;
     }) => {
-      if (!user) throw new Error("Nie ste prihlásený.");
+      if (!user) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       await overitOdovzdanie(token, input.data);
       await nahratFotkyRezervacie(

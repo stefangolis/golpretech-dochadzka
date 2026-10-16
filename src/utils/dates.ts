@@ -1,3 +1,5 @@
+import { formatDatumKratce, formatDenPlny } from "../i18n/datum";
+
 /** Počet dní dozadu vrátane dneška (7 = posledný týždeň) — nový zápis */
 export const ENTRY_DAYS_BACK = 7;
 
@@ -77,23 +79,17 @@ export function toSharePointDateTime(dateOnly: string): string {
   return `${dateOnly}T12:00:00Z`;
 }
 
-export function formatDateSk(dateOnly: string): string {
-  const d = parseDateOnly(dateOnly);
-  return d.toLocaleDateString("sk-SK", {
-    weekday: "short",
-    day: "numeric",
-    month: "numeric",
-    year: "numeric",
-  });
+/** "St 14. 10. 2026" (cs-CZ) */
+export function formatDateCs(dateOnly: string): string {
+  return formatDenPlny(dateOnly);
 }
+
+/** Alias — dříve sk-SK, nyní cs-CZ. */
+export const formatDateSk = formatDateCs;
 
 /** Kompaktný dátum pre tlačidlá (napr. 22. 8.) */
 export function formatDateShort(dateOnly: string): string {
-  const d = parseDateOnly(dateOnly);
-  return d.toLocaleDateString("sk-SK", {
-    day: "numeric",
-    month: "numeric",
-  });
+  return formatDatumKratce(dateOnly);
 }
 
 /** Nie budúcnosť, max. 7 dní dozadu */

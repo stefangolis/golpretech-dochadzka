@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -18,10 +15,11 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useKeyboardHeight } from "../../hooks/useKeyboardHeight";
 import { useAuth } from "../../auth/AuthContext";
+import { FormScrollView } from "../../components/FormScrollView";
 import { RangeCalendarModal } from "../../components/RangeCalendarModal";
 import { WorkItemPickerModal } from "../../components/WorkItemPickerModal";
+import { cs } from "../../i18n/cs";
 import {
   useRezervacie,
   useUpravitRezervaciu,
@@ -31,15 +29,16 @@ import { useWorkCatalog } from "../../hooks/useWorkItems";
 import { colors, font, spacing } from "../../theme";
 import type { WorkItem } from "../../types/workItems";
 import { formatEntryZakazkaLabel } from "../../api/workItemsPicker";
+import { zakazkaKluc } from "../../utils/jedinecneZakazky";
 import { fetchRezervacieVRozsahu } from "../../api/rezervacieData";
 import {
   daysAheadDateOnly,
-  formatDateSk,
   inclusiveDayCount,
   todayDateOnly,
 } from "../../utils/dates";
 import {
   formatRezervaciaObdobie,
+  formatTerminRezervace,
   menoZRezervacie,
   najdiKolizie,
   obsadeneDniVozidla,
@@ -48,22 +47,12 @@ import {
 } from "../../utils/rezervacie";
 import type { VozidlaStackParamList } from "./VozidlaNavigator";
 
+const T = cs.vozidla;
+const E = cs.vozidla.chyby;
+
 /** Zmena nezačatej rezervácie: termín, zákazka, cieľ cesty. Vozidlo sa nemení. */
 export function UpravitRezervaciuScreen() {
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
-  const cielFocusedRef = useRef(false);
-  const keyboardHeight = useKeyboardHeight();
-
-  useEffect(() => {
-    if (keyboardHeight <= 0 || !cielFocusedRef.current) return;
-    const t = setTimeout(
-      () => scrollRef.current?.scrollToEnd({ animated: true }),
-      50,
-    );
-    return () => clearTimeout(t);
-  }, [keyboardHeight]);
-
   const navigation =
     useNavigation<NativeStackNavigationProp<VozidlaStackParamList>>();
   const route =
@@ -96,13 +85,10 @@ export function UpravitRezervaciuScreen() {
   const nazovVozidla = vozidlo?.nazov ?? rezervacia.vozidloSpz;
 
   const prefilledWork = useMemo(() => {
-    const id = rezervacia.zakazkaId.trim().toLowerCase();
+    const id = zakazkaKluc(rezervacia.zakazkaId);
     if (!id) return null;
     const items = workCatalogQuery.data?.pickerItems ?? [];
-    const matches = items.filter(
-      (i) => i.zakazkaId.trim().toLowerCase() === id,
-    );
-    return matches.find((i) => i.kind === "zakazka") ?? matches[0] ?? null;
+    return items.find((i) => zakazkaKluc(i.zakazkaId) === id) ?? null;
   }, [workCatalogQuery.data, rezervacia.zakazkaId]);
 
   const work = selectedWork ?? prefilledWork;
@@ -122,25 +108,23 @@ export function UpravitRezervaciuScreen() {
 
   const onSubmit = async () => {
     if (od < today) {
-      setFormError("Dátum Od nemôže byť v minulosti.");
+      setFormError(E.odVMinulosti);
       return;
     }
     if (doDate < od) {
-      setFormError("Dátum Do musí byť rovný alebo neskôr ako Od.");
+      setFormError(E.doPredOdem);
       return;
     }
     if (inclusiveDayCount(od, doDate) > REZERVACIA_MAX_DAYS) {
-      setFormError(
-        `Maximálna dĺžka rezervácie je ${REZERVACIA_MAX_DAYS} dní.`,
-      );
+      setFormError(E.maxDelka(REZERVACIA_MAX_DAYS));
       return;
     }
     if (!zakazkaId.trim()) {
-      setFormError("Vyberte zákazku alebo objednávku.");
+      setFormError(E.vyberteZakazku);
       return;
     }
     if (!cielCesty.trim()) {
-      setFormError("Cieľ cesty je povinný.");
+      setFormError(E.cilPovinny);
       return;
     }
 
@@ -160,7 +144,7 @@ export function UpravitRezervaciuScreen() {
       if (kolizie.length > 0) {
         const k = kolizie[0]!;
         setFormError(
-          `Kolízia s rezerváciou ${menoZRezervacie(k)}, ${formatRezervaciaObdobie(k.od, k.do)}.`,
+          E.kolize(menoZRezervacie(k), formatRezervaciaObdobie(k.od, k.do)),
         );
         return;
       }
@@ -186,31 +170,24 @@ export function UpravitRezervaciuScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
-      >
-        <ScrollView
-          ref={scrollRef}
+        <FormScrollView
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: insets.bottom + spacing.xl * 2 + keyboardHeight },
+            { paddingBottom: insets.bottom + spacing.xl * 2 },
           ]}
-          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.topBar}>
             <Pressable
               style={styles.backBtn}
               onPress={() => navigation.goBack()}
             >
-              <Text style={styles.backBtnText}>← Späť</Text>
+              <Text style={styles.backBtnText}>{cs.spolecne.zpet}</Text>
             </Pressable>
-            <Text style={styles.topBarTitle}>Zmeniť rezerváciu</Text>
+            <Text style={styles.topBarTitle}>{T.zmenitRezervaci}</Text>
             <View style={styles.backBtnPlaceholder} />
           </View>
 
-          <Text style={styles.label}>Vozidlo</Text>
+          <Text style={styles.label}>{T.vozidlo}</Text>
           <View style={[styles.selectBtn, styles.selectLocked]}>
             <Text style={styles.selectValue}>
               {nazovVozidla}
@@ -218,19 +195,17 @@ export function UpravitRezervaciuScreen() {
             </Text>
           </View>
 
-          <Text style={styles.label}>1. Termín (od – do) *</Text>
+          <Text style={styles.label}>{T.termin1}</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setTerminOpen(true)}
           >
             <Text style={styles.selectValue}>
-              {od === doDate
-                ? `${formatDateSk(od)} (1 deň)`
-                : `${formatDateSk(od)} – ${formatDateSk(doDate)} (${inclusiveDayCount(od, doDate)} dní)`}
+              {formatTerminRezervace(od, doDate)}
             </Text>
           </Pressable>
 
-          <Text style={styles.label}>2. Zákazka *</Text>
+          <Text style={styles.label}>{T.zakazka2}</Text>
           <Pressable
             style={styles.selectBtn}
             onPress={() => setWorkOpen(true)}
@@ -246,7 +221,7 @@ export function UpravitRezervaciuScreen() {
               <Text style={styles.selectedLabel}>{zakazkaFallbackLabel}</Text>
             ) : (
               <Text style={styles.selectPlaceholder}>
-                Vyberte zákazku alebo objednávku…
+                {cs.odvod.vyberteZakazku}
               </Text>
             )}
           </Pressable>
@@ -254,23 +229,17 @@ export function UpravitRezervaciuScreen() {
             <Text style={styles.error}>
               {workCatalogQuery.error instanceof Error
                 ? workCatalogQuery.error.message
-                : "Nepodarilo sa načítať zákazky."}
+                : T.nacteniZakazek}
             </Text>
           ) : null}
 
-          <Text style={styles.label}>3. Cieľ cesty *</Text>
+          <Text style={styles.label}>{T.cilCesty3}</Text>
           <TextInput
             style={styles.input}
             value={cielCesty}
             onChangeText={setCielCesty}
-            placeholder="napr. JUTA a.s., Dvůr Králové"
+            placeholder={T.cilPlaceholder}
             placeholderTextColor={colors.muted}
-            onFocus={() => {
-              cielFocusedRef.current = true;
-            }}
-            onBlur={() => {
-              cielFocusedRef.current = false;
-            }}
           />
 
           {formError ? (
@@ -293,11 +262,10 @@ export function UpravitRezervaciuScreen() {
             {upravit.isPending ? (
               <ActivityIndicator color={colors.primaryText} />
             ) : (
-              <Text style={styles.submitText}>Uložiť zmeny</Text>
+              <Text style={styles.submitText}>{T.ulozitZmeny}</Text>
             )}
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
 
       <RangeCalendarModal
         visible={terminOpen}

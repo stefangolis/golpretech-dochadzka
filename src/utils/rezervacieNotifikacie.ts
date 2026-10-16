@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import type { Rezervacia } from "../api/rezervacieFields";
+import { cs } from "../i18n/cs";
 import { parseDateOnly } from "./dates";
 import { jeAktivnaRezervacia } from "./rezervacie";
 
@@ -35,7 +36,7 @@ function ensurePermission(): Promise<boolean> {
         if (Platform.OS === "android") {
           // Na Androide 13+ sa systémový dialóg zobrazí až po vytvorení kanála.
           await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-            name: "Rezervácie vozidiel",
+            name: cs.notifikace.kanalRezervace,
             importance: Notifications.AndroidImportance.HIGH,
           });
         }
@@ -88,8 +89,8 @@ export async function naplanovatNotifikaciuRezervacie(
     await Notifications.scheduleNotificationAsync({
       identifier: notifId(rezervaciaId),
       content: {
-        title: "Rezervace vozidla",
-        body: "Dnes ti končí rezervace vozidla, nezapomeň na odevzdání nebo prodloužení.",
+        title: cs.notifikace.konecRezervaceTitulek,
+        body: cs.notifikace.konecRezervaceText,
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,

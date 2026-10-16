@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import { toSharePointDateTime } from "../utils/dates";
 import {
   fetchListColumns,
@@ -85,7 +86,7 @@ function requireExactColumn(
     const available =
       columns.map((c) => `${c.displayName} (${c.name})`).join(", ") || "—";
     throw new Error(
-      `V zozname Rezervacie chýba stĺpec ${label}. Dostupné stĺpce: ${available}`,
+      cs.sharepoint.chybiSloupecDostupne("Rezervacie", label, available),
     );
   }
   return resolved;
@@ -96,9 +97,7 @@ export async function getRezervaciaColumnMap(
 ): Promise<RezervaciaColumnMap> {
   if (cached) return cached;
   if (!env.sharePointListRezervacieId) {
-    throw new Error(
-      "Chýba SHAREPOINT_LIST_REZERVACIE_ID v .env (reštartujte Expo po úprave).",
-    );
+    throw new Error(cs.vozidla.api.chybiEnv);
   }
 
   const columns = await fetchListColumns(
@@ -160,9 +159,7 @@ export async function getRezervaciaColumnMap(
   };
 
   if (map.od === map.do) {
-    throw new Error(
-      `Stĺpce Od a Do v zozname Rezervacie ukazujú na ten istý stĺpec (${map.od}).`,
-    );
+    throw new Error(cs.api.stejnySloupec("Rezervacie", "Od", "Do", map.od));
   }
 
   cached = map;

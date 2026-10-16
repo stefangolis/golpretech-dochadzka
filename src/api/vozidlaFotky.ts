@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import { graphFetch, parseGraphErrorBody } from "./sharepointClient";
 
 const LIBRARY_NAME = "VozidlaFotky";
@@ -22,7 +23,7 @@ export async function getVozidlaFotkyDriveId(
     if (!res.ok) {
       const body = await res.text();
       throw new Error(
-        `Knižnice dokumentov sa nepodarilo načítať (HTTP ${res.status}): ${parseGraphErrorBody(body)}`,
+        cs.vozidla.fotky.knihovny(res.status, parseGraphErrorBody(body)),
       );
     }
     const page = (await res.json()) as {
@@ -45,8 +46,7 @@ export async function getVozidlaFotkyDriveId(
   }
 
   throw new Error(
-    `Na SharePoint site chýba knižnica dokumentov „${LIBRARY_NAME}“. ` +
-      `Dostupné knižnice: ${names.join(", ") || "—"}`,
+    cs.vozidla.fotky.chybiKnihovna(LIBRARY_NAME, names.join(", ") || "—"),
   );
 }
 
@@ -68,11 +68,11 @@ async function uploadJpeg(
     const body = await res.text();
     if (res.status === 403) {
       throw new Error(
-        `Nemáte oprávnenie zapisovať do knižnice „${LIBRARY_NAME}“ (403). Požiadajte správcu o prístup.`,
+        cs.vozidla.fotky.bezZapisu(LIBRARY_NAME),
       );
     }
     throw new Error(
-      `Nahranie fotky ${path} zlyhalo (HTTP ${res.status}): ${parseGraphErrorBody(body)}`,
+      cs.vozidla.fotky.nahraniZlyhalo(path, res.status, parseGraphErrorBody(body)),
     );
   }
 }

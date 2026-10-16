@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTimeEntry, fetchMyTimeEntries, updateTimeEntry } from "../api/workData";
 import { useAuth } from "../auth/AuthContext";
+import { cs } from "../i18n/cs";
+import type { TimeEntry } from "../types/workItems";
+import { nahradZapis } from "../utils/odvodZapisy";
 
 export function useMyEntries() {
   const { getValidAccessToken, user } = useAuth();
@@ -31,7 +34,7 @@ export function useCreateTimeEntry() {
       rework: boolean;
       poznamka: string;
     }) => {
-      if (!user?.email) throw new Error("Nie ste prihlásený.");
+      if (!user?.email) throw new Error(cs.spolecne.nejstePrihlasen);
       const token = await getValidAccessToken();
       await createTimeEntry(token, {
         ...input,
@@ -65,7 +68,11 @@ export function useUpdateTimeEntry() {
       const { id, ...fields } = input;
       await updateTimeEntry(token, id, fields);
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, input) => {
+      const { id, ...zmena } = input;
+      queryClient.setQueryData<TimeEntry[]>(["myEntries", user?.email], (old) =>
+        old ? nahradZapis(old, id, zmena) : old,
+      );
       await queryClient.invalidateQueries({
         queryKey: ["myEntries", user?.email],
       });

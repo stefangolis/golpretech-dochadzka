@@ -3,11 +3,8 @@ import {
   ActivityIndicator,
   AppState,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -23,6 +20,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthContext";
 import { BottomSheetModal } from "../components/BottomSheetModal";
 import { CalendarModal } from "../components/CalendarModal";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FormScrollView } from "../components/FormScrollView";
+import { cs } from "../i18n/cs";
 import { MyEntriesSection } from "../components/MyEntriesSection";
 import { UkonPickerModal } from "../components/UkonPickerModal";
 import { WorkItemPickerModal } from "../components/WorkItemPickerModal";
@@ -30,25 +30,35 @@ import { MINUTE_PRESETS } from "../constants/minutes";
 import { useCreateTimeEntry, useMyEntries } from "../hooks/useMyEntries";
 import { useUkony } from "../hooks/useUkony";
 import { useWorkCatalog } from "../hooks/useWorkItems";
-import { useKeyboardHeight } from "../hooks/useKeyboardHeight";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, font, spacing } from "../theme";
 import type { UkonItem } from "../types/ukon";
 import {
   daysAgoDateOnly,
   formatDateShort,
-  formatDateSk,
+  formatDateCs,
+  myEntriesMinDateOnly,
   todayDateOnly,
 } from "../utils/dates";
+import { skontrolujMinuty, textUpozorneniaMinut } from "../utils/odvodMinuty";
 import { parseMinutes, validateTimeEntry } from "../utils/validation";
+
+const T = cs.odvod;
+
+type NovyZapis = {
+  datum: string;
+  zakazkaId: string;
+  cisloObjednavky: string;
+  minuty: number;
+  ukon: string;
+  rework: boolean;
+  poznamka: string;
+};
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const scrollRef = useRef<ScrollView>(null);
-  const noteFocusedRef = useRef(false);
-  const keyboardHeight = useKeyboardHeight();
   const { user } = useAuth();
   const workCatalogQuery = useWorkCatalog();
   const ukonyQuery = useUkony();
@@ -67,6 +77,10 @@ export function HomeScreen() {
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [upozornenie, setUpozornenie] = useState<{
+    text: string;
+    zapis: NovyZapis;
+  } | null>(null);
 
   const today = todayDateOnly();
   const yesterday = daysAgoDateOnly(1);
@@ -83,16 +97,6 @@ export function HomeScreen() {
     () => ukonyQuery.data?.map((u) => u.nazov) ?? [],
     [ukonyQuery.data],
   );
-
-  // Po zobrazení klávesnice (a odsadení obsahu) posuň na poznámku.
-  useEffect(() => {
-    if (keyboardHeight <= 0 || !noteFocusedRef.current) return;
-    const t = setTimeout(
-      () => scrollRef.current?.scrollToEnd({ animated: true }),
-      50,
-    );
-    return () => clearTimeout(t);
-  }, [keyboardHeight]);
 
   // Pri návrate do appky v nový deň predvyber dnešný dátum.
   const lastDayRef = useRef(todayDateOnly());
@@ -143,28 +147,46 @@ export function HomeScreen() {
       poznamka: note,
     });
     if (error || !selection || !selectedUkon) {
-      setFormError(error ?? "Skontrolujte formulár.");
+      setFormError(error ?? T.skontrolujteFormular);
       return;
     }
 
     const minuty = parseMinutes(minutesRaw);
     if (minuty == null) {
-      setFormError("Minúty musia byť celé číslo od 1 do 720.");
+      setFormError(cs.odvod.validace.minuty);
       return;
     }
 
     setFormError(null);
-    try {
-      await createEntry.mutateAsync({
-        datum: dateOnly,
-        zakazkaId: selection.zakazkaId,
-        cisloObjednavky: selection.cisloObjednavky,
+    const zapis: NovyZapis = {
+      datum: dateOnly,
+      zakazkaId: selection.zakazkaId,
+      cisloObjednavky: selection.cisloObjednavky,
+      minuty,
+      ukon: selectedUkon.nazov,
+      rework,
+      poznamka: note.trim(),
+    };
+    const text = textUpozorneniaMinut(
+      skontrolujMinuty({
         minuty,
-        ukon: selectedUkon.nazov,
-        rework,
-        poznamka: note.trim(),
-      });
-      setSuccessMsg(`Uložené: ${minuty} min · ${selectedUkon.nazov}`);
+        datum: dateOnly,
+        zaznamy: myEntriesQuery.data,
+        nacitaneOd: myEntriesMinDateOnly(),
+        nacitaneDo: todayDateOnly(),
+      }),
+    );
+    if (text) {
+      setUpozornenie({ text, zapis });
+      return;
+    }
+    await ulozit(zapis);
+  };
+
+  const ulozit = async (zapis: NovyZapis) => {
+    try {
+      await createEntry.mutateAsync(zapis);
+      setSuccessMsg(T.ulozene(zapis.minuty, zapis.ukon));
       setMinutesRaw("");
       setNote("");
       setRework(false);
@@ -184,18 +206,11 @@ export function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
-      >
-        <ScrollView
-          ref={scrollRef}
+        <FormScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: bottomPad + keyboardHeight },
+            { paddingBottom: bottomPad },
           ]}
-          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
@@ -206,9 +221,9 @@ export function HomeScreen() {
                 style={styles.backBtn}
                 onPress={() => navigation.navigate("Hub")}
               >
-                <Text style={styles.backBtnText}>← Hub</Text>
+                <Text style={styles.backBtnText}>{cs.spolecne.zpetHub}</Text>
               </Pressable>
-              <Text style={styles.topBarTitle}>Odvod hodín</Text>
+              <Text style={styles.topBarTitle}>{T.titulek}</Text>
               <View style={styles.backBtnPlaceholder} />
             </View>
 
@@ -226,13 +241,13 @@ export function HomeScreen() {
             />
 
             <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
-              Nový zápis
+              {T.novyZapis}
             </Text>
 
-            <Text style={styles.label}>1. Dátum *</Text>
+            <Text style={styles.label}>{T.datum}</Text>
             <View style={styles.dateRow}>
               <DateChip
-                title="Dnes"
+                title={cs.spolecne.dnes}
                 active={dateOnly === today}
                 onPress={() => setDateOnly(today)}
               />
@@ -247,7 +262,7 @@ export function HomeScreen() {
                 onPress={() => setDateOnly(dayBefore)}
               />
               <DateChip
-                title="Manuálne"
+                title={T.manualne}
                 active={
                   dateOnly !== today &&
                   dateOnly !== yesterday &&
@@ -257,9 +272,9 @@ export function HomeScreen() {
                 outline
               />
             </View>
-            <Text style={styles.dateValue}>{formatDateSk(dateOnly)}</Text>
+            <Text style={styles.dateValue}>{formatDateCs(dateOnly)}</Text>
 
-            <Text style={styles.label}>2. Zákazka / objednávka *</Text>
+            <Text style={styles.label}>{T.zakazka}</Text>
             <Pressable
               style={styles.selectBtn}
               onPress={() => setWorkOpen(true)}
@@ -275,7 +290,7 @@ export function HomeScreen() {
                 </View>
               ) : (
                 <Text style={styles.selectPlaceholder}>
-                  Vyberte zákazku alebo objednávku…
+                  {T.vyberteZakazku}
                 </Text>
               )}
             </Pressable>
@@ -290,12 +305,12 @@ export function HomeScreen() {
                   style={styles.retryBtn}
                   onPress={() => void workCatalogQuery.refetch()}
                 >
-                  <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+                  <Text style={styles.retryBtnText}>{cs.spolecne.zkusitZnovu}</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            <Text style={styles.label}>3. Minúty (1–720) *</Text>
+            <Text style={styles.label}>{T.minutyLabel}</Text>
             <View style={styles.minutesRow}>
               <Pressable
                 style={styles.minutesDropdown}
@@ -306,7 +321,7 @@ export function HomeScreen() {
                     minutesRaw ? styles.selectValue : styles.selectPlaceholder
                   }
                 >
-                  {minutesRaw || "Vyberte…"}
+                  {minutesRaw || cs.spolecne.vyberte}
                 </Text>
               </Pressable>
               <TextInput
@@ -314,12 +329,12 @@ export function HomeScreen() {
                 value={minutesRaw}
                 onChangeText={setMinutesRaw}
                 keyboardType="number-pad"
-                placeholder="ručne"
+                placeholder={T.rucne}
                 placeholderTextColor={colors.muted}
               />
             </View>
 
-            <Text style={styles.label}>4. Úkon *</Text>
+            <Text style={styles.label}>{T.ukon}</Text>
             <Pressable
               style={styles.selectBtn}
               onPress={() => setUkonOpen(true)}
@@ -329,7 +344,7 @@ export function HomeScreen() {
                   selectedUkon ? styles.selectValue : styles.selectPlaceholder
                 }
               >
-                {selectedUkon?.nazov ?? "Vyberte úkon…"}
+                {selectedUkon?.nazov ?? T.vyberteUkon}
               </Text>
             </Pressable>
             {ukonyQuery.isError ? (
@@ -343,7 +358,7 @@ export function HomeScreen() {
                   style={styles.retryBtn}
                   onPress={() => void ukonyQuery.refetch()}
                 >
-                  <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+                  <Text style={styles.retryBtnText}>{cs.spolecne.zkusitZnovu}</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -358,20 +373,14 @@ export function HomeScreen() {
               />
             </View>
 
-            <Text style={styles.label}>Poznámka{rework ? " *" : ""}</Text>
+            <Text style={styles.label}>{T.poznamka}{rework ? " *" : ""}</Text>
             <TextInput
               style={[styles.input, styles.noteInput]}
               value={note}
               onChangeText={setNote}
-              placeholder={rework ? "Povinná pri Rework" : "Voliteľná"}
+              placeholder={rework ? T.poznamkaPovinna : T.poznamkaVolitelna}
               placeholderTextColor={colors.muted}
               multiline
-              onFocus={() => {
-                noteFocusedRef.current = true;
-              }}
-              onBlur={() => {
-                noteFocusedRef.current = false;
-              }}
             />
 
             {formError ? (
@@ -398,12 +407,25 @@ export function HomeScreen() {
               {createEntry.isPending ? (
                 <ActivityIndicator color={colors.primaryText} />
               ) : (
-                <Text style={styles.submitText}>Uložiť zápis</Text>
+                <Text style={styles.submitText}>{T.ulozitZapis}</Text>
               )}
             </Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+
+      <ConfirmDialog
+        visible={upozornenie !== null}
+        title={T.skontrolujMinuty}
+        message={upozornenie?.text}
+        confirmLabel={cs.spolecne.ulozit}
+        cancelLabel={cs.spolecne.opravit}
+        onConfirm={() => {
+          const zapis = upozornenie?.zapis;
+          setUpozornenie(null);
+          if (zapis) void ulozit(zapis);
+        }}
+        onClose={() => setUpozornenie(null)}
+      />
 
       <CalendarModal
         visible={calendarOpen}
@@ -425,7 +447,7 @@ export function HomeScreen() {
 
       <BottomSheetModal
         visible={minutesOpen}
-        title="Minúty"
+        title={T.minutyTitulek}
         onClose={() => setMinutesOpen(false)}
       >
         {MINUTE_PRESETS.map((m) => (

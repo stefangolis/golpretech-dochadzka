@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import {
   daysAgoDateOnly,
   toSharePointDateTime,
@@ -8,10 +9,12 @@ import {
   createSharePointItem,
   escapeODataString,
   fetchListDisplayName,
+  graphFetch,
   listAllSharePointItems,
+  parseGraphErrorBody,
   updateSharePointItemFields,
 } from "./sharepointClient";
-import { jeAktivnaRezervacia } from "../utils/rezervacie";
+import { jeAktivnaRezervacia, mozeZrusitRezervaciu } from "../utils/rezervacie";
 import { fetchListColumnChoices, type ListColumnChoiceInfo } from "./listColumns";
 import {
   buildRezervaciaCreateFields,
@@ -28,7 +31,7 @@ let listsVerified = false;
 function assertVozidlaEnv(): void {
   if (!env.sharePointListVozidlaId || !env.sharePointListRezervacieId) {
     throw new Error(
-      "Chýbajú SHAREPOINT_LIST_VOZIDLA_ID alebo SHAREPOINT_LIST_REZERVACIE_ID v .env (reštartujte Expo po úprave).",
+      cs.vozidla.api.chybiEnv,
     );
   }
 }
@@ -52,12 +55,7 @@ export async function verifyVozidlaListIds(
   const rezervacieOk = rezervacieName.toLowerCase() === "rezervacie";
 
   if (!vozidlaOk || !rezervacieOk) {
-    throw new Error(
-      "Zoznamy vozidiel/rezervácií v .env pravdepodobne nemajú správne ID. " +
-        `SHAREPOINT_LIST_VOZIDLA_ID → „${vozidlaName}“ (očakávané: Vozidla), ` +
-        `SHAREPOINT_LIST_REZERVACIE_ID → „${rezervacieName}“ (očakávané: Rezervacie). ` +
-        "Vymeňte hodnoty v .env a reštartujte Expo.",
-    );
+    throw new Error(cs.vozidla.api.spatnaId(vozidlaName, rezervacieName));
   }
 
   listsVerified = true;
@@ -212,12 +210,30 @@ export async function createRezervacia(
   );
 }
 
+/** Zruší neprevzatú rezerváciu; aktuálny stav sa overí na serveri (prevzatá sa odovzdáva). */
 export async function zrusitRezervaciu(
   accessToken: string,
   itemId: string,
 ): Promise<void> {
   await verifyVozidlaListIds(accessToken);
   const cols = await getRezervaciaColumnMap(accessToken);
+  const res = await graphFetch(
+    accessToken,
+    `https://graph.microsoft.com/v1.0/sites/${env.sharePointSiteId}/lists/${env.sharePointListRezervacieId}/items/${itemId}?$expand=fields($select=${cols.stav})`,
+  );
+  if (res.status === 404) throw new Error(cs.vozidla.api.nenalezena);
+  if (!res.ok) {
+    throw new Error(cs.vozidla.api.http(res.status, parseGraphErrorBody(await res.text())));
+  }
+  const data = (await res.json()) as { fields?: Record<string, unknown> };
+  const aktualnyStav = String(data.fields?.[cols.stav] ?? "");
+  if (!mozeZrusitRezervaciu({ stav: aktualnyStav as Rezervacia["stav"] })) {
+    throw new Error(
+      aktualnyStav === "Prevzate"
+        ? cs.vozidla.api.uzPrevzata
+        : cs.vozidla.api.uzNelzeZrusit,
+    );
+  }
   await updateSharePointItemFields(
     accessToken,
     env.sharePointListRezervacieId,
@@ -296,7 +312,7 @@ let choicesCache: Map<string, ListColumnChoiceInfo> | null = null;
 
 function requireCol(column: string | null, label: string): string {
   if (!column) {
-    throw new Error(`V zozname Rezervacie chýba stĺpec ${label}.`);
+    throw new Error(cs.vozidla.api.chybiSloupec(label));
   }
   return column;
 }
@@ -321,8 +337,12 @@ async function overitHodnotyVolieb(
     if (!info?.choices) continue;
     if (info.choices.includes(value)) continue;
     throw new Error(
-      `Stĺpec „${info.displayName}“ (${column}) v zozname Rezervacie nepovoľuje hodnotu „${value}“. ` +
-        `Povolené hodnoty: ${info.choices.join(", ") || "—"}.`,
+      cs.vozidla.api.sloupecVolba(
+        info.displayName,
+        column,
+        value,
+        info.choices.join(", ") || "—",
+      ),
     );
   }
 }

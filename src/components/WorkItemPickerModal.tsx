@@ -8,6 +8,7 @@ import {
   TextInput,
 } from "react-native";
 import { useWorkCatalog } from "../hooks/useWorkItems";
+import { cs } from "../i18n/cs";
 import { colors, font, spacing } from "../theme";
 import type { WorkItem } from "../types/workItems";
 import { BottomSheetModal } from "./BottomSheetModal";
@@ -40,7 +41,7 @@ export function WorkItemPickerModal({
   return (
     <BottomSheetModal
       visible={visible}
-      title="Zákazka / objednávka"
+      title={cs.picker.zakazkaObjednavka}
       onClose={onClose}
       tall
       dismissOnBackdrop={false}
@@ -49,7 +50,7 @@ export function WorkItemPickerModal({
         style={styles.input}
         value={workSearch}
         onChangeText={setWorkSearch}
-        placeholder="Hľadať kód, názov, zákazníka…"
+        placeholder={cs.picker.hledat}
         placeholderTextColor={colors.muted}
         autoCorrect={false}
         autoCapitalize="none"
@@ -65,13 +66,13 @@ export function WorkItemPickerModal({
           <Text style={styles.error} selectable>
             {workCatalogQuery.error instanceof Error
               ? workCatalogQuery.error.message
-              : "Nepodarilo sa načítať zoznam."}
+              : cs.picker.nacteniSeznamu}
           </Text>
           <Pressable
             style={styles.retryBtn}
             onPress={() => void workCatalogQuery.refetch()}
           >
-            <Text style={styles.retryBtnText}>Skúsiť znovu</Text>
+            <Text style={styles.retryBtnText}>{cs.spolecne.zkusitZnovu}</Text>
           </Pressable>
         </>
       ) : (
@@ -81,7 +82,7 @@ export function WorkItemPickerModal({
           keyboardShouldPersistTaps="handled"
           style={styles.modalList}
           ListEmptyComponent={
-            <Text style={styles.muted}>Nič nenájdené.</Text>
+            <Text style={styles.muted}>{cs.picker.nicNenalezeno}</Text>
           }
           renderItem={({ item }) => (
             <WorkItemOption
@@ -96,7 +97,7 @@ export function WorkItemPickerModal({
         />
       )}
       <Pressable style={styles.modalCloseBtn} onPress={onClose}>
-        <Text style={styles.modalCloseText}>Zavrieť</Text>
+        <Text style={styles.modalCloseText}>{cs.spolecne.zavrit}</Text>
       </Pressable>
     </BottomSheetModal>
   );

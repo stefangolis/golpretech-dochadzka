@@ -2,6 +2,7 @@ import { asSharePointYesNo } from "./listColumns";
 import type { ParsedObjednavka } from "./objednavkaFields";
 import type { ParsedZakazka } from "./zakazkaFields";
 import type { TimeEntry, WorkItem } from "../types/workItems";
+import { jedinecneZakazky, zakazkaKluc } from "../utils/jedinecneZakazky";
 import {
   buildWorkItemMainLine,
   buildWorkItemOrderSubLine,
@@ -21,7 +22,7 @@ function isActiveOrderStatus(stav: string): boolean {
 }
 
 export function zakazkaLookupKey(zakazkaId: string): string {
-  return zakazkaId.trim().toLowerCase();
+  return zakazkaKluc(zakazkaId);
 }
 
 export function zakazkyLookupMap(zakazky: ParsedZakazka[]): ZakazkaLookup {
@@ -79,35 +80,30 @@ export function workItemFromObjednavka(
 }
 
 /**
- * Ponuka pre nový zápis: len zákazky so StavAktivna=true.
- * Objednávky uzavretej zákazky sa nezobrazia, aj keď majú Stav ≠ Neaktivna.
+ * Ponuka pre nový zápis: len zákazky so StavAktivna=true, každé číslo zákazky raz.
+ * Pri viacerých aktívnych objednávkach sa ponúkne najnovšia; staršie čísla objednávok
+ * ostávajú vo vyhľadávaní. Objednávky uzavretej zákazky sa nezobrazia.
  */
 export function buildPickerWorkItems(
   zakazky: ParsedZakazka[],
   objednavky: ParsedObjednavka[],
 ): WorkItem[] {
-  const zakazkaById = zakazkyLookupMap(zakazky);
-  const items: WorkItem[] = [];
-  const zakazkaIdsWithActiveOrder = new Set<string>();
+  const aktivneZakazky = zakazky.filter(
+    (z) => z.zakazkaId && asSharePointYesNo(z.stavAktivna),
+  );
+  const aktivneObjednavky = objednavky.filter(
+    (o) => o.cisloObjednavky && o.zakazkaId && isActiveOrderStatus(o.stav),
+  );
 
-  for (const order of objednavky) {
-    if (!order.cisloObjednavky || !isActiveOrderStatus(order.stav)) continue;
-    if (!order.zakazkaId) continue;
-
-    const key = zakazkaLookupKey(order.zakazkaId);
-    const zak = zakazkaById[key];
-    if (!zak || !asSharePointYesNo(zak.stavAktivna)) continue;
-
-    zakazkaIdsWithActiveOrder.add(key);
-    items.push(workItemFromObjednavka(order, zak));
-  }
-
-  for (const zak of zakazky) {
-    if (!zak.zakazkaId || !asSharePointYesNo(zak.stavAktivna)) continue;
-    const key = zakazkaLookupKey(zak.zakazkaId);
-    if (zakazkaIdsWithActiveOrder.has(key)) continue;
-    items.push(workItemFromZakazka(zak));
-  }
+  const items = jedinecneZakazky(aktivneZakazky, aktivneObjednavky).map(
+    ({ zakazka, objednavka, starsieObjednavky }) => {
+      if (!objednavka) return workItemFromZakazka(zakazka);
+      const item = workItemFromObjednavka(objednavka, zakazka);
+      if (!starsieObjednavky.length) return item;
+      const starsie = starsieObjednavky.map((o) => o.cisloObjednavky).join(" ");
+      return { ...item, searchText: `${item.searchText} ${starsie.toLowerCase()}` };
+    },
+  );
 
   items.sort((a, b) => a.label.localeCompare(b.label, "sk"));
   return items;

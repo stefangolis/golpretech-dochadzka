@@ -7,6 +7,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { cs } from "../i18n/cs";
+import { DNY_TYDNE_OD_PONDELI, formatMesicRok } from "../i18n/datum";
 import { colors, font, spacing } from "../theme";
 import {
   minEntryDateOnly,
@@ -26,7 +28,7 @@ type Props = {
   maxDate?: string;
 };
 
-const WEEKDAYS = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
+const WEEKDAYS = DNY_TYDNE_OD_PONDELI;
 
 function monthStart(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -83,10 +85,7 @@ export function CalendarModal({
     return out;
   }, [viewMonth]);
 
-  const monthLabel = viewMonth.toLocaleDateString("sk-SK", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = formatMesicRok(viewMonth.getFullYear(), viewMonth.getMonth() + 1);
 
   const canPrev =
     toDateOnly(addMonths(viewMonth, -1)) >= toDateOnly(monthStart(parseDateOnly(minDate)));
@@ -100,7 +99,7 @@ export function CalendarModal({
           style={[styles.sheet, { marginBottom: insets.bottom }]}
           onPress={(e) => e.stopPropagation()}
         >
-          <Text style={styles.title}>Vyberte dátum</Text>
+          <Text style={styles.title}>{cs.kalendar.vyberteDatum}</Text>
 
           <View style={styles.navRow}>
             <Pressable

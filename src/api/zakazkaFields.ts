@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { cs } from "../i18n/cs";
 import {
   fetchListColumns,
   fieldString,
@@ -30,8 +31,7 @@ function requireColumn(
   const resolved = resolveListColumn(columns, preferredNames, displayHints);
   if (!resolved) {
     throw new Error(
-      `V zozname Zákazky chýba stĺpec ${label}. ` +
-        `Dostupné stĺpce: ${columnSummary(columns)}`,
+      cs.sharepoint.chybiSloupecDostupne("Zákazky", label, columnSummary(columns)),
     );
   }
   return resolved;
